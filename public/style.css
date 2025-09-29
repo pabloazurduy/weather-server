@@ -1,0 +1,214 @@
+/* E-ink display specific styles */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Arial', sans-serif;
+    background-color: #f0f0f0; /* Light gray background */
+    color: #000000; /* Black text for high contrast */
+    line-height: 1.5;
+}
+
+.container {
+    width: 800px;
+    height: 480px;
+    margin: 0 auto;
+    background-color: #ffffff; /* White background */
+    border: 1px solid #cccccc;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.weather-frame {
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+/* Header section with city and current temperature */
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    border-bottom: 1px solid #cccccc;
+    padding-bottom: 10px;
+}
+
+.location h1 {
+    font-size: 24px;
+    font-weight: bold;
+}
+
+.location p {
+    font-size: 14px;
+}
+
+.current-weather {
+    display: flex;
+    align-items: center;
+}
+
+.weather-icon {
+    font-size: 36px;
+    margin-right: 10px;
+}
+
+.temperature h2 {
+    font-size: 32px;
+    font-weight: bold;
+}
+
+.temperature p {
+    font-size: 12px;
+}
+
+/* Weather details section */
+.details {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 15px;
+    border-bottom: 1px solid #eeeeee;
+    padding-bottom: 10px;
+}
+
+.detail-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    font-size: 12px;
+}
+
+.icon {
+    font-size: 16px;
+    margin-bottom: 2px;
+}
+
+/* Chart sections */
+.rain-section, .wind-section {
+    margin-bottom: 15px;
+}
+
+.rain-section h3, .wind-section h3 {
+    font-size: 14px;
+    margin-bottom: 5px;
+}
+
+.chart {
+    height: 60px;
+    background-color: #f9f9f9;
+    border: 1px solid #eeeeee;
+    display: flex;
+    align-items: flex-end;
+}
+
+.bar, .point {
+    background-color: #000000;
+    margin: 0 1px;
+    width: 5px;
+}
+
+.bar {
+    /* For rain intensity bars */
+    min-height: 1px;
+}
+
+.point {
+    /* For wind speed points */
+    width: 2px;
+    height: 2px;
+    border-radius: 50%;
+}
+
+.time-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    margin-top: 2px;
+    color: #555555;
+}
+
+.direction-labels {
+    display: flex;
+    justify-content: space-around;
+    font-size: 10px;
+    margin-bottom: 2px;
+    color: #555555;
+}
+
+/* Daylight section */
+.daylight-section {
+    margin-bottom: 15px;
+}
+
+.daylight-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 2px;
+}
+
+.daylight-progress {
+    flex-grow: 1;
+    height: 15px;
+    background-color: #f0f0f0;
+    border: 1px solid #dddddd;
+    margin: 0 10px;
+    position: relative;
+}
+
+.daylight-progress::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    background-color: #555555;
+    width: var(--progress, 50%); /* This will be updated via JavaScript */
+}
+
+.daylight-label {
+    text-align: center;
+    font-size: 12px;
+}
+
+/* Forecast section */
+.forecast {
+    display: flex;
+    justify-content: space-between;
+    border-top: 1px solid #eeeeee;
+    padding-top: 10px;
+}
+
+.forecast-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    font-size: 12px;
+}
+
+.day {
+    font-weight: bold;
+}
+
+.forecast-temp {
+    font-size: 11px;
+}
+
+.forecast-icon {
+    font-size: 16px;
+    margin: 3px 0;
+}
+
+.forecast-rain {
+    font-size: 10px;
+}
+
+/* E-ink optimizations */
+/* Avoid gradients, animations, shadows, and transparent elements */
+/* Stick to solid colors, preferably black and white with few grays */

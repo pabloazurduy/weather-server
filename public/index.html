@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weather E-Ink Display</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="weather-frame">
+            <div class="header">
+                <div class="location">
+                    <h1 id="city">AMSTERDAM</h1>
+                    <p id="date">Thursday, March 13</p>
+                </div>
+                <div class="current-weather">
+                    <div class="weather-icon" id="weather-icon">
+                        <!-- Weather icon will be inserted here -->
+                    </div>
+                    <div class="temperature">
+                        <h2 id="temp">12°C</h2>
+                        <p id="feels-like">Feels like 10°C</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="details">
+                <div class="detail-item">
+                    <span class="icon">☀️</span>
+                    <span>Sunrise</span>
+                    <span id="sunrise">06:15</span>
+                </div>
+                <div class="detail-item">
+                    <span class="icon">🌅</span>
+                    <span>Sunset</span>
+                    <span id="sunset">85%</span>
+                </div>
+                <div class="detail-item">
+                    <span class="icon">🌬️</span>
+                    <span id="wind-speed">18 km/h</span>
+                    <span id="wind-direction">NW</span>
+                </div>
+                <div class="detail-item">
+                    <span class="icon">💧</span>
+                    <span>Humidity</span>
+                    <span id="humidity">85%</span>
+                </div>
+            </div>
+
+            <div class="rain-section">
+                <h3>Rain Intensity</h3>
+                <div class="chart" id="rain-chart"></div>
+                <div class="time-labels" id="rain-labels"></div>
+            </div>
+
+            <div class="wind-section">
+                <h3>Wind Speed</h3>
+                <div class="chart" id="wind-chart"></div>
+                <div class="direction-labels" id="wind-direction-labels"></div>
+                <div class="time-labels" id="wind-labels"></div>
+            </div>
+
+            <div class="daylight-section">
+                <div class="daylight-bar">
+                    <span id="sunrise-time">06:15</span>
+                    <div class="daylight-progress" id="daylight-progress"></div>
+                    <span id="sunset-time">20:30</span>
+                </div>
+                <p class="daylight-label">Daylight</p>
+            </div>
+
+            <div class="forecast">
+                <div class="forecast-item">
+                    <span class="day">MON</span>
+                    <span class="forecast-temp">15°/9°</span>
+                    <span class="forecast-icon">🌧️</span>
+                </div>
+                <div class="forecast-item">
+                    <span class="day">TUE</span>
+                    <span class="forecast-temp">16°/10°</span>
+                    <span class="forecast-icon">☀️</span>
+                </div>
+                <div class="forecast-item">
+                    <span class="day">WED</span>
+                    <span class="forecast-temp">14°/8°</span>
+                    <span class="forecast-icon">🌦️</span>
+                    <span class="forecast-rain">40%</span>
+                </div>
+                <div class="forecast-item">
+                    <span class="day">THU</span>
+                    <span class="forecast-temp">-</span>
+                    <span class="forecast-icon"></span>
+                </div>
+                <div class="forecast-item">
+                    <span class="day">FRI</span>
+                    <span class="forecast-temp">-</span>
+                    <span class="forecast-icon"></span>
+                </div>
+                <div class="forecast-item">
+                    <span class="day">SAT</span>
+                    <span class="forecast-temp">12°/7°</span>
+                    <span class="forecast-icon">☀️</span>
+                </div>
+                <div class="forecast-item">
+                    <span class="day">SUN</span>
+                    <span class="forecast-temp">14°/8°</span>
+                    <span class="forecast-icon">🌧️</span>
+                    <span class="forecast-rain">30%</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
