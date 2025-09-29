@@ -9,104 +9,126 @@
 <body>
     <div class="container">
         <div class="weather-frame">
+            <!-- Location and date section -->
             <div class="header">
                 <div class="location">
-                    <h1 id="city">AMSTERDAM</h1>
+                    <h1 id="city">Los Angeles, California</h1>
                     <p id="date">Thursday, March 13</p>
                 </div>
+            </div>
+
+            <!-- Main content area with current conditions -->
+            <div class="main-content">
+                <!-- Left side - current temperature and feels like -->
                 <div class="current-weather">
                     <div class="weather-icon" id="weather-icon">
                         <!-- Weather icon will be inserted here -->
                     </div>
                     <div class="temperature">
-                        <h2 id="temp">12°C</h2>
-                        <p id="feels-like">Feels like 10°C</p>
+                        <h2 id="temp">49°F</h2>
+                        <p id="feels-like">Feels Like 45°</p>
+                    </div>
+                </div>
+
+                <!-- Right side - weather details -->
+                <div class="weather-details">
+                    <!-- Top row details -->
+                    <div class="detail-row">
+                        <div class="detail-item">
+                            <span class="detail-icon">☀</span>
+                            <span class="detail-label">Sunrise</span>
+                            <span class="detail-value" id="sunrise">7:05<span class="unit">AM</span></span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-icon">�</span>
+                            <span class="detail-label">Sunset</span>
+                            <span class="detail-value" id="sunset">6:59<span class="unit">PM</span></span>
+                        </div>
+                    </div>
+                    
+                    <!-- Middle row details -->
+                    <div class="detail-row">
+                        <div class="detail-item">
+                            <span class="detail-icon">💨</span>
+                            <span class="detail-label">Wind</span>
+                            <span class="detail-value" id="wind">10.36<span class="unit">mph</span></span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-icon">💧</span>
+                            <span class="detail-label">Humidity</span>
+                            <span class="detail-value" id="humidity">92<span class="unit">%</span></span>
+                        </div>
+                    </div>
+                    
+                    <!-- Bottom row details -->
+                    <div class="detail-row">
+                        <div class="detail-item">
+                            <span class="detail-icon">👁️</span>
+                            <span class="detail-label">Visibility</span>
+                            <span class="detail-value" id="visibility">›10.0<span class="unit">mi</span></span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-icon">🌬️</span>
+                            <span class="detail-label">Air Quality</span>
+                            <span class="detail-value" id="air-quality">2<span class="unit">Fair</span></span>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <div class="details">
-                <div class="detail-item">
-                    <span class="icon">☀️</span>
-                    <span>Sunrise</span>
-                    <span id="sunrise">06:15</span>
-                </div>
-                <div class="detail-item">
-                    <span class="icon">🌅</span>
-                    <span>Sunset</span>
-                    <span id="sunset">85%</span>
-                </div>
-                <div class="detail-item">
-                    <span class="icon">🌬️</span>
-                    <span id="wind-speed">18 km/h</span>
-                    <span id="wind-direction">NW</span>
-                </div>
-                <div class="detail-item">
-                    <span class="icon">💧</span>
-                    <span>Humidity</span>
-                    <span id="humidity">85%</span>
-                </div>
-            </div>
-
+            <!-- Rain intensity section with detailed precipitation -->
             <div class="rain-section">
-                <h3>Rain Intensity</h3>
-                <div class="chart" id="rain-chart"></div>
-                <div class="time-labels" id="rain-labels"></div>
-            </div>
-
-            <div class="wind-section">
-                <h3>Wind Speed</h3>
-                <div class="chart" id="wind-chart"></div>
-                <div class="direction-labels" id="wind-direction-labels"></div>
-                <div class="time-labels" id="wind-labels"></div>
-            </div>
-
-            <div class="daylight-section">
-                <div class="daylight-bar">
-                    <span id="sunrise-time">06:15</span>
-                    <div class="daylight-progress" id="daylight-progress"></div>
-                    <span id="sunset-time">20:30</span>
+                <h3 class="rain-section-title">Next-Hour Precipitation</h3>
+                <div class="hourly-forecast" id="hourly-forecast">
+                    <!-- Minute-by-minute precipitation will be inserted by JavaScript -->
                 </div>
-                <p class="daylight-label">Daylight</p>
+                <div class="time-markers">
+                    <span>Now</span>
+                    <span>10m</span>
+                    <span>20m</span>
+                    <span>30m</span>
+                    <span>40m</span>
+                    <span>50m</span>
+                </div>
+                <p class="rain-status" id="rain-status"></p>
             </div>
 
+            <!-- 7-day forecast section -->
             <div class="forecast">
                 <div class="forecast-item">
-                    <span class="day">MON</span>
-                    <span class="forecast-temp">15°/9°</span>
+                    <span class="day">Fri</span>
                     <span class="forecast-icon">🌧️</span>
+                    <span class="forecast-temp">50°/46°</span>
                 </div>
                 <div class="forecast-item">
-                    <span class="day">TUE</span>
-                    <span class="forecast-temp">16°/10°</span>
-                    <span class="forecast-icon">☀️</span>
+                    <span class="day">Sat</span>
+                    <span class="forecast-icon">⛅</span>
+                    <span class="forecast-temp">64°/47°</span>
                 </div>
                 <div class="forecast-item">
-                    <span class="day">WED</span>
-                    <span class="forecast-temp">14°/8°</span>
-                    <span class="forecast-icon">🌦️</span>
-                    <span class="forecast-rain">40%</span>
+                    <span class="day">Sun</span>
+                    <span class="forecast-icon">⛅</span>
+                    <span class="forecast-temp">66°/53°</span>
                 </div>
                 <div class="forecast-item">
-                    <span class="day">THU</span>
-                    <span class="forecast-temp">-</span>
-                    <span class="forecast-icon"></span>
-                </div>
-                <div class="forecast-item">
-                    <span class="day">FRI</span>
-                    <span class="forecast-temp">-</span>
-                    <span class="forecast-icon"></span>
-                </div>
-                <div class="forecast-item">
-                    <span class="day">SAT</span>
-                    <span class="forecast-temp">12°/7°</span>
-                    <span class="forecast-icon">☀️</span>
-                </div>
-                <div class="forecast-item">
-                    <span class="day">SUN</span>
-                    <span class="forecast-temp">14°/8°</span>
+                    <span class="day">Mon</span>
                     <span class="forecast-icon">🌧️</span>
-                    <span class="forecast-rain">30%</span>
+                    <span class="forecast-temp">62°/50°</span>
+                </div>
+                <div class="forecast-item">
+                    <span class="day">Tue</span>
+                    <span class="forecast-icon">☀️</span>
+                    <span class="forecast-temp">69°/52°</span>
+                </div>
+                <div class="forecast-item">
+                    <span class="day">Wed</span>
+                    <span class="forecast-icon">☀️</span>
+                    <span class="forecast-temp">74°/57°</span>
+                </div>
+                <div class="forecast-item">
+                    <span class="day">Thu</span>
+                    <span class="forecast-icon">⛅</span>
+                    <span class="forecast-temp">73°/56°</span>
                 </div>
             </div>
         </div>
