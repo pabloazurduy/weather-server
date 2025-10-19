@@ -8,26 +8,26 @@ class HelloHandler(BaseHTTPRequestHandler):
         self.end_headers()
         
         html = '''<!DOCTYPE html>
-<html>
-<head>
-    <title>Hello World - Whale Edition</title>
-    <style>
-        body { font-family: monospace; background: #f0f0f0; text-align: center; padding: 40px; }
-        pre { background: white; padding: 20px; border-radius: 5px; display: inline-block; }
-    </style>
-</head>
-<body>
-    <h1>Hello World! 🐋</h1>
+    <html>
+    <head>
+    <title>Hello World</title>
+    </head>
+    <body>
     <pre>
-    `._.,
-    (    "\\___
-    /         \\_
-   /_,  ,_\\n \\__\\
-   \\_o_o_/    \\_/
+Hello World
+
+
+                                       ##         .
+                                 ## ## ##        ==
+                              ## ## ## ## ##    ===
+                           /""""""""""""""""\___/ ===
+                      ~~~ {~~ ~~~~ ~~~ ~~~~ ~~ ~ /  ===- ~~~
+                           \______ o          _,/
+                            \      \       _,'
+                             `'--.._\..--''
     </pre>
-    <p>Running in a Docker container</p>
-</body>
-</html>'''
+    </body>
+    </html>'''
         self.wfile.write(html.encode())
     
     def log_message(self, format, *args):
