@@ -1,39 +1,39 @@
 #!/usr/bin/env python3
-"""
-Weather Server - A simple Flask server for e-ink weather display
-Generates random weather data and serves the web frontend
-"""
-from flask import Flask, jsonify, send_from_directory
-import random
-import os
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
-# Initialize Flask app with static files in 'public' directory
-app = Flask(__name__, static_folder='public')
-
-@app.route('/api/weather')
-def weather_api():
-    """
-    API endpoint that returns random weather data:
-    - temperature: random value between -10°C and 35°C
-    - rain_probability: random value between 0 and 1
-    """
-    return jsonify({
-        "temperature": random.randint(-10, 35),
-        "rain_probability": random.random()
-    })
-
-@app.route('/')
-def home():
-    """Serve the main index.html file"""
-    return send_from_directory(app.static_folder, 'index.html')
-
-@app.route('/<path:path>')
-def static_files(path):
-    """Serve static files from the public directory"""
-    return send_from_directory(app.static_folder, path)
+class HelloHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html; charset=utf-8')
+        self.end_headers()
+        
+        html = '''<!DOCTYPE html>
+<html>
+<head>
+    <title>Hello World - Whale Edition</title>
+    <style>
+        body { font-family: monospace; background: #f0f0f0; text-align: center; padding: 40px; }
+        pre { background: white; padding: 20px; border-radius: 5px; display: inline-block; }
+    </style>
+</head>
+<body>
+    <h1>Hello World! 🐋</h1>
+    <pre>
+    `._.,
+    (    "\\___
+    /         \\_
+   /_,  ,_\\n \\__\\
+   \\_o_o_/    \\_/
+    </pre>
+    <p>Running in a Docker container</p>
+</body>
+</html>'''
+        self.wfile.write(html.encode())
+    
+    def log_message(self, format, *args):
+        pass
 
 if __name__ == '__main__':
-    # Use environment variable for port if provided, otherwise default to 5001
-    port = int(os.environ.get('FLASK_PORT', 5001))
-    print(f"Weather Server starting on http://0.0.0.0:{port}")
-    app.run(host='0.0.0.0', port=port, debug=True)
+    server = HTTPServer(('0.0.0.0', 8080), HelloHandler)
+    print('🐋 Whale server running on http://0.0.0.0:8080')
+    server.serve_forever()
