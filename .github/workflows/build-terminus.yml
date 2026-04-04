@@ -4,9 +4,6 @@ on:
   push:
     branches:
       - main
-    paths:
-      - "terminus/Dockerfile.custom"
-      - "terminus/app/models/firmware/setup.rb"
 
 env:
   REGISTRY: ghcr.io
