@@ -2,7 +2,7 @@ name: "terminus"
 
 services:
   init-certificates:
-    image: ghcr.io/usetrmnl/terminus:latest
+    image: ghcr.io/pabloazurduy/ws-terminus:latest
     user: root
     environment:
       CERTIFICATE_URLS: ${CERTIFICATE_URLS:-}
