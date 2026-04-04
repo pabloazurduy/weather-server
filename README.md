@@ -24,7 +24,7 @@ The Terminus fix is baked into the custom Docker image. The firmware fix is in `
 The patched image is published to GitHub Container Registry on every push to `main`:
 
 ```
-ghcr.io/pabloazurduy/weather-server/terminus:latest
+ghcr.io/pabloazurduy/ws-terminus:latest
 ```
 
 ### Running Terminus

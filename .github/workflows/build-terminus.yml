@@ -10,7 +10,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}/terminus
+  IMAGE_NAME: ${{ github.repository_owner }}/ws-terminus
 
 jobs:
   build-and-push:
