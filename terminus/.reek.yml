@@ -1,0 +1,114 @@
+exclude_paths:
+  - tmp
+  - vendor
+
+detectors:
+  Attribute:
+    exclude:
+      - Terminus::Views::Parts::User#password
+  DataClump:
+    exclude:
+      - Terminus::Actions::API::Base
+      - Terminus::Aspects::Croner
+      - Terminus::Aspects::ProblemDetail
+      - Terminus::Aspects::Screens::Shoter
+      - Terminus::Repositories::Screen
+  DuplicateMethodCall:
+    exclude:
+      - Terminus::Aspects::Devices::Provisioner#create
+  ControlParameter:
+    exclude:
+      - Terminus::Aspects::PasswordEncryptor#call
+      - Terminus::Aspects::Playlists::SlideWindow#screens
+  FeatureEnvy:
+    exclude:
+      - Terminus::Aspects::ProblemDetail#enum
+      - Terminus::Action#authorize
+      - Terminus::Actions::API::Base#detail_duplicate
+      - Terminus::Actions::API::Base#detail_enum
+      - Terminus::Actions::API::Base#detail_foreign_key
+      - Terminus::Actions::API::Devices::Create#unprocessable_content
+      - Terminus::Actions::API::Devices::Patch#unprocessable_content
+      - Terminus::Actions::API::Firmware::Create#unprocessable_content
+      - Terminus::Actions::API::Firmware::Create#unprocessable_download
+      - Terminus::Actions::API::Firmware::Delete#failure
+      - Terminus::Actions::API::Firmware::Patch#unprocessable_content
+      - Terminus::Actions::API::Firmware::Patch#unprocessable_download
+      - Terminus::Actions::API::Models::Create#unprocessable_content
+      - Terminus::Actions::API::Models::Patch#unprocessable_content
+      - Terminus::Actions::API::Playlists::Create#unprocessable_content
+      - Terminus::Actions::API::Playlists::Patch#unprocessable_content
+      - Terminus::Actions::API::Screens::Create#handle
+      - Terminus::Actions::API::Screens::Create#save
+      - Terminus::Actions::API::Screens::Create#unprocessable_content_for_creation
+      - Terminus::Actions::API::Screens::Create#unprocessable_content_for_parameters
+      - Terminus::Actions::API::Screens::Delete#failure
+      - Terminus::Actions::API::Screens::Patch#replace
+      - Terminus::Actions::API::Screens::Patch#unprocessable_content_for_creation
+      - Terminus::Actions::API::Screens::Patch#unprocessable_content_for_parameters
+      - Terminus::Actions::Devices::Create#provision
+      - Terminus::Actions::Devices::Create#render_new
+      - Terminus::Actions::Devices::Update#edit
+      - Terminus::Actions::Extensions::Clone::Create#error
+      - Terminus::Actions::Extensions::Create#error
+      - Terminus::Actions::Extensions::Gallery::Index#render_error
+      - Terminus::Actions::Extensions::Update#error
+      - Terminus::Actions::Firmware::Create#error
+      - Terminus::Actions::Firmware::Delete#render
+      - Terminus::Actions::Firmware::Update#error
+      - Terminus::Actions::Models::Update#error
+      - Terminus::Actions::Playlists::Create#error
+      - Terminus::Actions::Playlists::Items::Edit#screen_options
+      - Terminus::Actions::Playlists::Items::New#screen_options
+      - Terminus::Actions::Playlists::Screens::Show#view_settings
+      - Terminus::Actions::Playlists::Update#error
+      - Terminus::Actions::Users::Update#error
+      - Terminus::Aspects::Extensions::Fetcher#maybe_alter_mime_type
+      - Terminus::Aspects::Extensions::Renderers::Image#render_multiple
+      - Terminus::Aspects::Playlists::ScreenOptioner#call
+      - Terminus::Aspects::Screens::Compressor#convert
+      - Terminus::Aspects::Screens::Converters::Color#convert
+      - Terminus::Aspects::Screens::Converters::Monochrome#as_one_bit
+      - Terminus::Aspects::Screens::Converters::Monochrome#as_one_bit_dither
+      - Terminus::Aspects::Screens::Converters::Monochrome#as_two_to_eight_bit
+      - Terminus::Aspects::Screens::Converters::Monochrome#as_two_to_eight_bit
+      - Terminus::Aspects::Screens::Converters::Monochrome#as_two_to_four_bit_dither
+      - Terminus::Aspects::Screens::Converters::Monochrome#convert
+      - Terminus::Aspects::Screens::Creators::TempPath#capture_input
+      - Terminus::Aspects::Screens::Designer::EventStream#render_preview
+      - Terminus::Aspects::Screens::Shoter#save
+      - Terminus::Aspects::Screens::Upserters::TempPath#capture_input
+      - Terminus::IPFinder#all
+      - Terminus::Jobs::Batches::Extension#enqueue_devices
+      - Terminus::Jobs::Batches::Extension#enqueue_models
+      - Terminus::Repositories::Screen#create_with_image
+      - Terminus::Repositories::Screen#update_with_image
+  LongParameterList:
+    enabled: false
+  TooManyInstanceVariables:
+    exclude:
+      - Terminus::Aspects::Screens::Placeholder
+  TooManyStatements:
+    exclude:
+      - RackLoggerPatch#prepare_app_providers
+      - Terminus::Action#handle_rodauth_redirect
+      - Terminus::Actions::Extensions::Poll::Show#fetch
+      - Terminus::Aspects::Croner#call
+      - Terminus::Aspects::Extensions::Fetcher#parse
+      - Terminus::Aspects::Extensions::Parser#from_json
+      - Terminus::Aspects::Firmware::Downloader#get
+      - Terminus::Aspects::Screens::Compressor#call
+      - Terminus::Aspects::Screens::Converters::Color#convert
+      - Terminus::Aspects::Screens::Converters::Monochrome#convert
+      - Terminus::Aspects::Screens::Placeholder#initialize
+      - Terminus::Aspects::Screens::Shoter#save
+      - Terminus::Providers::Sidekiq#load_schedule
+      - Terminus::Views::Parts::Device#battery_voltage_to_percent
+      - Terminus::Views::Parts::Device#wifi_percentage
+  UtilityFunction:
+    exclude:
+      - SQLLoggerPatch#log_query
+      - Terminus::Aspects::Croner
+      - Terminus::Aspects::Liquid::Filters#json
+      - Terminus::Aspects::ProblemDetail#duplicate
+      - Terminus::Aspects::ProblemDetail#foreign_key

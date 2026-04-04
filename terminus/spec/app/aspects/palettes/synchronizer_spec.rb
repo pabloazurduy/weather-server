@@ -1,0 +1,75 @@
+# frozen_string_literal: true
+
+require "hanami_helper"
+require "trmnl/api"
+
+RSpec.describe Terminus::Aspects::Palettes::Synchronizer, :db do
+  subject(:synchronizer) { described_class.new trmnl_api: }
+
+  let :trmnl_api do
+    instance_double TRMNL::API::Client,
+                    palettes: Success(
+                      [
+                        TRMNL::API::Models::Palette[
+                          name: "test",
+                          label: "Test",
+                          grays: 2,
+                          colors: [],
+                          framework_class: "screen--1bit"
+                        ]
+                      ]
+                    )
+  end
+
+  let(:repository) { Terminus::Repositories::Palette.new }
+
+  describe "#call" do
+    context "with no remote models" do
+      let(:trmnl_api) { instance_double TRMNL::API::Client, palettes: Success([]) }
+
+      it "deletes core records" do
+        Factory[:palette, name: "test", kind: "trmnl"]
+        synchronizer.call
+        repository.all
+
+        expect(repository.all).to eq([])
+      end
+    end
+
+    it "creates new record when missing" do
+      synchronizer.call
+      record = repository.all.first
+
+      expect(record).to have_attributes(
+        name: "test",
+        label: "Test",
+        kind: "trmnl",
+        grays: 2,
+        colors: [],
+        framework_class: "screen--1bit"
+      )
+    end
+
+    it "updates existing record" do
+      Factory[:palette, name: "test"]
+      synchronizer.call
+      record = repository.all.first
+
+      expect(record).to have_attributes(
+        name: "test",
+        label: "Test",
+        kind: "trmnl",
+        grays: 2,
+        colors: [],
+        framework_class: "screen--1bit"
+      )
+    end
+
+    it "answers failure when models can't be obtained" do
+      trmnl_api = instance_spy TRMNL::API::Client, palettes: Failure("Danger!")
+      synchronizer = described_class.new(trmnl_api:)
+
+      expect(synchronizer.call).to be_failure("Danger!")
+    end
+  end
+end

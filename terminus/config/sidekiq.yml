@@ -1,0 +1,8 @@
+:queues:
+  - ["within_1_minute", 1]
+  - ["within_1_hour", 1]
+  - ["within_1_day", 1]
+:scheduler:
+  :dynamic: true
+  :rufus_scheduler_options:
+    :max_work_threads: <%= ENV.fetch "HANAMI_MAX_THREADS", 5 %>

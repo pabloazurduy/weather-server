@@ -1,0 +1,122 @@
+<% current_screen = device.current_screen %>
+
+<%= render "shared/title", text: "#{device.label} Device" %>
+
+<section class="bit-page page-devices">
+  <header class="bit-header">
+    <ul class="bit-breadcrumbs">
+      <li class="bit-breadcrumb"><%= link_to "Devices", routes.path(:devices), class: :link %></li>
+      <li class="bit-breadcrumb"><%= device.label %></li>
+    </ul>
+  </header>
+
+  <div class="bit-body">
+    <div class="bit-card device">
+      <h2 class="label"><%= device.label %></h2>
+
+      <%= render "shared/popovers/triggers/screen", name: "screen-#{current_screen.id}" do %>
+        <%= render "shared/screen", uri: current_screen.image_uri %>
+      <% end %>
+
+      <%= scope(:popover_screen_content, **current_screen.popover_attributes).render %>
+      <%= render "measurements", device: %>
+
+      <div class="actions">
+        <%= render "shared/actions/edit", path: routes.path(:device_edit, id: device.id) %>
+        <%= render "shared/actions/logs", path: routes.path(:device_logs, device_id: device.id) %>
+      </div>
+
+      <dl class="bit-definition-list">
+        <dt class="key">
+          Model
+          <%= render "shared/popovers/triggers/default", name: :model %>
+        </dt>
+        <dd class="value">
+          <%= link_to device.model.label, routes.path(:model, id: device.model_id) %>
+        </dd>
+
+        <dt class="key">
+          Playlist
+          <%= render "shared/popovers/triggers/default", name: :playlist %>
+        </dt>
+        <dd class="value">
+          <%= device.playlist ? link_to(device.playlist.label, routes.path(:playlist, id: device.playlist_id)) : nil %>
+        </dd>
+
+        <dt class="key">
+          Friendly ID
+          <%= render "shared/popovers/triggers/default", name: :friendly_id %>
+        </dt>
+        <dd class="value"><%= device.friendly_id %></dd>
+
+        <dt class="key">
+          MAC Address
+          <%= render "shared/popovers/triggers/default", name: :mac_address %>
+        </dt>
+        <dd class="value bit-secret"><%= device.mac_address %></dd>
+
+        <dt class="key">
+          API Key
+          <%= render "shared/popovers/triggers/default", name: :api_key %>
+        </dt>
+        <dd class="value bit-secret"><%= device.api_key %></dd>
+
+        <dt class="key">
+          Refresh Rate
+          <%= render "shared/popovers/triggers/default", name: :refresh_rate %>
+        </dt>
+        <dd class="value"><%= device.refresh_rate %></dd>
+
+        <dt class="key">
+          Image Timeout
+          <%= render "shared/popovers/triggers/default", name: :image_timeout %>
+        </dt>
+        <dd class="value"><%= device.image_timeout %></dd>
+
+        <dt class="key">Dimensions</dt>
+        <dd class="value"><%= device.dimensions %></dd>
+
+        <dt class="key"><%= link_to "Firmware", routes.path(:firmware)%></dt>
+        <dd class="value"><%= device.firmware_version %></dd>
+
+        <dt class="key">
+          Firmware Update
+          <%= render "shared/popovers/triggers/default", name: :firmware_update %>
+        </dt>
+        <dd class="value"><%= boolean device.firmware_update %></dd>
+
+        <dt class="key">
+          Proxy
+          <%= render "shared/popovers/triggers/default", name: :proxy %>
+        </dt>
+        <dd class="value"><%= boolean device.proxy %></dd>
+
+        <dt class="key">
+          Wake Reason
+          <%= render "shared/popovers/triggers/default", name: :wake_reason %>
+        </dt>
+        <dd class="value"><%= device.wake_description %></dd>
+
+        <dt class="key">
+          Sleep Start
+          <%= render "shared/popovers/triggers/default", name: :sleep_start %>
+        </dt>
+        <dd class="value"><%= human_time device.sleep_start_at %></dd>
+
+        <dt class="key">
+          Sleep Stop
+          <%= render "shared/popovers/triggers/default", name: :sleep_stop %>
+        </dt>
+        <dd class="value"><%= human_time device.sleep_stop_at %></dd>
+
+        <dt class="key">Created</dt>
+        <dd class="value"><%= human_at device.created_at %></dd>
+
+        <dt class="key">Updated</dt>
+        <dd class="value"><%= human_at device.updated_at %></dd>
+      </dl>
+    </div>
+  </div>
+</section>
+
+<%= render "devices/shared/popovers/all" %>

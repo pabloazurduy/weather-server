@@ -1,0 +1,51 @@
+# frozen_string_literal: true
+
+module Terminus
+  module Actions
+    module Playlists
+      module Items
+        # The update action.
+        class Update < Action
+          include Deps[
+            repository: "repositories.playlist_item",
+            show_view: "views.playlists.items.show"
+          ]
+
+          params do
+            required(:id).filled :integer
+            required(:playlist_id).filled :integer
+            required(:playlist_item).hash { required(:screen_id).filled :integer }
+          end
+
+          def handle request, response
+            parameters = request.params
+
+            if parameters.valid?
+              save parameters, response
+            else
+              error parameters, response
+            end
+          end
+
+          private
+
+          def save parameters, response
+            item = repository.find_by playlist_id: parameters[:playlist_id], id: parameters[:id]
+            id = item.id
+            repository.update id, **parameters[:playlist_item]
+
+            response.render show_view, item: repository.find(id), layout: false
+          end
+
+          def error parameters, response
+            response.render view,
+                            playlist:,
+                            fields: parameters[:playlist],
+                            errors: parameters.errors[:playlist],
+                            layout: false
+          end
+        end
+      end
+    end
+  end
+end

@@ -1,0 +1,14 @@
+*.env*
+!*.env*.tt
+*.log
+.bundle
+.DS_Store
+compose.dev.yml
+coverage
+db/*.sqlite
+node_modules
+Procfile.dev
+public/*
+!public/404.html
+!public/500.html
+tmp

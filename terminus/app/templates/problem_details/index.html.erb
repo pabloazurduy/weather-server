@@ -1,0 +1,278 @@
+<%= render "shared/title", text: "Problem Details" %>
+
+<section class="page-problem_details">
+  <header class="bit-header">
+    <h1>Problem Details</h1>
+  </header>
+
+  <p class="introduction">
+    Welcome to the problem details page where you can find additional information related <a href="https://www.rfc-editor.org/rfc/rfc9457">Problem Details for HTTP APIs</a> as implemented by the <a href="https://alchemists.io/projects/petail">Petails</a> gem. The following documents the different types of problems as linked to in your API response errors.
+  </p>
+
+  <details name="details">
+    <summary id="device_id" class="summary">Device ID</summary>
+
+    <p>Could not find device by ID. The device ID should be supplied via the HTTP ID header.</p>
+  </details>
+
+  <details name="details">
+    <summary id="device_payload" class="summary">Device Payload</summary>
+
+    <p>Could not create device. When making an API HTTP POST request, use the following required and optional keys:</p>
+
+    <h2 class="label">Required</h2>
+
+    <dl class="bit-definition-list">
+      <dt class="key">model_id</dt>
+      <dd class="value">The model ID (see Models API for details).</dd>
+
+      <dt class="key">label</dt>
+      <dd class="value">The label. Use this to give your device a unique label.</dd>
+
+      <dt class="key">mac_address</dt>
+      <dd class="value">The MAC Address. The unique MAC address of your device.</dd>
+    </dl>
+
+    <h2 class="label">Optional</h2>
+
+    <dl class="bit-definition-list">
+      <dt class="key">playlist_id</dt>
+      <dd class="value">The playlist ID. The current device playlist. Default: <code>nil</code>.</dd>
+
+      <dt class="key">friendly_id</dt>
+      <dd class="value">The friendly ID. Should be identical to your Core account if you want device proxying support. Defaults to an uppercase six character hex value.</dd>
+
+      <dt class="key">api_key</dt>
+      <dd class="value">The API Key. The unique API key for making API requests. Defaults to an auto-generated value when not supplied.</dd>
+
+      <dt class="key">refresh_rate</dt>
+      <dd class="value">The refresh rate in seconds. Must be greater than <code>10</code>. Default: <code>900</code>.</dd>
+
+      <dt class="key">image_timeout</dt>
+      <dd class="value">The image timeout in seconds. The maximum duration the device will wait before timing out for acquiring an image to display. Must be a positive number. Default: <code>0</code>.</dd>
+
+      <dt class="key">proxy</dt>
+      <dd class="value">Determines if the device should proxy images from the Core server. Default: <code>false</code>.</dd>
+
+      <dt class="key">firmware_update</dt>
+      <dd class="value">Determines if device should automatically update with stable Firmware releases. Default: <code>true</code>.</dd>
+
+      <dt class="key">sleep_start_at</dt>
+      <dd class="value">Sets when a device should sleep. Default: <code>nil</code>.</dd>
+
+      <dt class="key">sleep_stop_at</dt>
+      <dd class="value">Sets when a device should wake. Default: <code>nil</code>.</dd>
+    </dl>
+
+    <p>Here's an example of a request payload using all attributes.</p>
+
+    <pre>
+      "device": {
+        "playlist_id": "1",
+        "model_id": 1,
+        "friendly_id": "AFCA5B",
+        "label": "Demo",
+        "api_key": "QubEY53CZCW9QxJbDNNA",
+        "mac_address": "A1:B2:C3:D4:E5:F6",
+        "firmware_update": true,
+        "refresh_rate": "500",
+        "image_timeout": "0",
+        "proxy": true,
+        "sleep_start_at": "00:00:00",
+        "sleep_stop_at": "06:00:00"
+      }
+    </pre>
+  </details>
+
+  <details name="details">
+    <summary id="device_setup" class="summary">Device Setup</summary>
+
+    The following required and optional headers are necessary when making API requests:
+
+    <h2 class="label">Required</h2>
+
+    <dl class="bit-definition-list">
+      <dt class="key">ID</dt>
+      <dd class="value">Must be your device's MAC address and properly formatted. Example: <code>A1:B2:C3:D4:E5:F6</code>.</dd>
+    </dl>
+
+    <h2 class="label">Optional</h2>
+
+    <dl class="bit-definition-list">
+      <dt class="key">FW_VERSION</dt>
+      <dd class="value">If provided, must adhere to <a href="https://alchemists.io/articles/strict_semantic_versioning">Strict Semantic Versioning</a>. Example: <code>1.2.3</code>.
+      </dd>
+    </dl>
+  </details>
+
+  <details name="details">
+    <summary id="duplicate_value" class="summary">Duplicate Value</summary>
+
+    <p>Could not create or update record due to duplicate value. This happens when there is a unique database constraint on a specific key and the value you are providing is already taken. To correct, ensure the value you are supplying is different than the value that already exists.</p>
+  </details>
+
+  <details name="details">
+    <summary id="firmware_payload" class="summary">Firmware Payload</summary>
+
+    <p>Could not create or update firmware. The following is the list of supported keys:</p>
+
+    <h2 class="label">Required</h2>
+
+    <dl class="bit-definition-list">
+      <dt class="key">version</dt>
+      <dd class="value">The unique version.</dd>
+
+      <dt class="key">kind</dt>
+      <dd class="value">The unique kind. Use <code>terminus</code> as the value.</dd>
+
+      <dt class="key">uri</dt>
+      <dd class="value">The remote URI to upload firmware.</dd>
+    </dl>
+
+    <p>When making a POST request the above are required but when making a PATCH request they are optional as long you supply at least one key.</p>
+  </details>
+
+  <details name="details">
+    <summary id="invalid_enum" class="summary">Invalid Enum</summary>
+
+    <p>Could not create or update record due to invalid enum. This happens when supplying a value that isn't in the allowed list of values. To correct, ensure you only use one of the allowed values provided.</p>
+  </details>
+
+  <details name="details">
+    <summary id="invalid_foreign_key" class="summary">Invalid Foreign Key</summary>
+
+    <p>Could not create or update record due to invalid foreign key. This happens when supplying a foreign key ID that no longer exists. To correct, use a foreign that does exist.</p>
+  </details>
+
+  <details name="details">
+    <summary id="log_payload" class="summary">Log Payload</summary>
+
+    <p>Could not create log for device due to invalid payload. The payload should be structured as follows:</p>
+
+    <pre>
+      "logs": [
+        {
+          "id": 666,
+          "message": "An API test.",
+          "wifi_status": "connected",
+          "created_at": 1742022124,
+          "sleep_duration": 31,
+          "refresh_rate": 30,
+          "free_heap_size": 160656,
+          "max_alloc_size": 180000,
+          "source_path": "src/bl.cpp",
+          "wake_reason": "timer",
+          "firmware_version": "1.2.3",
+          "retry": 1,
+          "battery_voltage": 4.772,
+          "source_line": 597,
+          "special_function": "none",
+          "wifi_signal": -54
+        }
+      ]
+    </pre>
+
+    <p>The <code>retry</code> key is optional and can be be excluded but all other keys are required.</p>
+  </details>
+
+  <details name="details">
+    <summary id="model_payload" class="summary">Model Payload</summary>
+
+    <p>Could not create or update model. When making an API HTTP POST request, the following is a list of all required and optional keys:</p>
+
+    <h2 class="label">Required</h2>
+
+    <dl class="bit-definition-list">
+      <dt class="key">name</dt>
+      <dd class="value">The unique name.</dd>
+
+      <dt class="key">label</dt>
+      <dd class="value">The unique label.</dd>
+    </dl>
+
+    <h2 class="label">Optional</h2>
+
+    <dl class="bit-definition-list">
+      <dt class="key">description</dt>
+      <dd class="value">The model description. This can be any descriptive text that would give more context for the model.</dd>
+    </dl>
+
+    <p>Here's an example of a bare minimum request paylaod.</p>
+
+    <pre>
+      "model": {
+        "name": "demo",
+        "label": "Demo"
+      }
+    </pre>
+  </details>
+
+  <details name="details">
+    <summary id="playlist_payload" class="summary">Playlist Payload</summary>
+
+    <p>Could not create or update playlist. When making an API HTTP POST request, the following is a list of all required and optional keys:</p>
+
+    <h2 class="label">Required</h2>
+
+    <dl class="bit-definition-list">
+      <dt class="key">name</dt>
+      <dd class="value">The unique name.</dd>
+
+      <dt class="key">label</dt>
+      <dd class="value">The unique label.</dd>
+    </dl>
+
+    <h2 class="label">Optional</h2>
+
+    <dl class="bit-definition-list">
+      <dt class="key">mode</dt>
+      <dd class="value">The playlist mode. This can be <code>automatic</code> (default) or <code>manual</code>.</dd>
+
+      <dt class="key">current_item_id</dt>
+      <dd class="value">The playlist curremt item ID. This is the item ID you want to make current.</dd>
+    </dl>
+
+    <p>Here's an example of a bare minimum request paylaod.</p>
+
+    <pre>
+      "playlist": {
+        "name": "demo",
+        "label": "Demo"
+      }
+    </pre>
+  </details>
+
+  <details name="details">
+    <summary id="screen_payload" class="summary">Screen Payload</summary>
+
+    <p>Could not create screen for device. When making an API HTTP POST request, the following required and optional keys should be used within the hash provided for the <code>image</code> key.</p>
+
+    <h2 class="label">Required:</h2>
+
+    <dl class="bit-definition-list">
+      <dt class="key">model_id</dt>
+      <dd class="value">Must be the primary ID of an existing model.</dd>
+
+      <dt class="key">label</dt>
+      <dd class="value">Must be a unique string.</dd>
+
+      <dt class="key">name</dt>
+      <dd class="value">Must be a unique string (generally the snake case version of the label).</dd>
+    </dl>
+
+    <h2 class="label">Optional (must be one of the following):</h2>
+
+    <dl class="bit-definition-list">
+      <dt class="key">content</dt>
+      <dd class="value">Must be HTML content. CSS can be provided via the style tags within HTML head element if desired too.</dd>
+
+      <dt class="key">uri</dt>
+      <dd class="value">Must be an image URI. This can be either relative path or an URL to an image.</dd>
+
+      <dt class="key">preprocessed</dt>
+      <dd class="value">
+        Use to render a preprocessed image directly onto your device. The value must be either <code>true</code> or <code>false</code>. When <code>true</code>, this must be used in conjuction with the <code>uri</code> key (mentioned above). This assumes the URI you want have rendered on your device is fully compatible with the device in terms of bit depth, color, grays, width, height, and so forth.
+      </dd>
+    </dl>
+  </details>
+</section>

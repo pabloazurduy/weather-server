@@ -1,0 +1,148 @@
+name: "terminus-development"
+
+services:
+  init-certificates:
+    build:
+      context: .
+      target: development
+    user: root
+    environment:
+      CERTIFICATE_URLS: ${CERTIFICATE_URLS:-}
+    volumes:
+      - certificates:/etc/ssl/certs
+    entrypoint: ["/bin/bash", "-c"]
+    command: scripts/docker/install-certificates
+    restart: no
+
+  web:
+    init: true
+    build:
+      context: .
+      target: development
+    environment:
+      HANAMI_PORT: ${HANAMI_PORT}
+      API_URI: ${API_URI}
+      APP_SECRET: ${APP_SECRET}
+      DATABASE_URL: postgres://${DATABASE_USER}:${DATABASE_PASSWORD}@database:${DATABASE_PORT}/${DATABASE_NAME}
+      KEYVALUE_URL: redis://:${KEYVALUE_PASSWORD}@keyvalue:${KEYVALUE_PORT}/${KEYVALUE_DATABASE}
+    ports:
+      - "${HANAMI_PORT}:${HANAMI_PORT}"
+    restart: unless-stopped
+    volumes:
+      - ".:/app"
+      - certificates:/etc/ssl/certs
+    command: scripts/docker/entrypoint-dev bundle exec puma --config ./config/puma.rb
+    depends_on:
+      init-certificates:
+        condition: service_completed_successfully
+      database:
+        condition: service_healthy
+      keyvalue:
+        condition: service_healthy
+    networks:
+      - terminus-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://localhost:${HANAMI_PORT}/up"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+
+  worker:
+    init: true
+    build:
+      context: .
+      target: development
+    environment:
+      HANAMI_PORT: ${HANAMI_PORT}
+      API_URI: ${API_URI}
+      APP_SECRET: ${APP_SECRET}
+      APP_SETUP: true
+      DATABASE_URL: postgres://${DATABASE_USER}:${DATABASE_PASSWORD}@database:${DATABASE_PORT}/${DATABASE_NAME}
+      KEYVALUE_URL: redis://:${KEYVALUE_PASSWORD}@keyvalue:${KEYVALUE_PORT}/${KEYVALUE_DATABASE}
+    command: bundle exec sidekiq -r ./config/sidekiq.rb
+    restart: unless-stopped
+    volumes:
+      - ".:/app"
+      - certificates:/etc/ssl/certs
+    depends_on:
+      web:
+        condition: service_healthy
+    networks:
+      - terminus-network
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "sidekiq"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+
+  database:
+    image: postgres:18.3-alpine
+    environment:
+      POSTGRES_USER: ${DATABASE_USER}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+      POSTGRES_DB: ${DATABASE_NAME}
+    ports:
+      - "${DATABASE_PORT}:${DATABASE_PORT}"
+    volumes:
+      - database-data:/var/lib/postgresql
+    command: -p ${DATABASE_PORT}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --username ${DATABASE_USER} --dbname ${DATABASE_NAME} --port ${DATABASE_PORT}"]
+      interval: 1s
+      timeout: 2s
+      retries: 3
+      start_period: 2s
+    networks:
+      - terminus-network
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "1.0"
+
+  keyvalue:
+    image: valkey/valkey:9-alpine
+    ports:
+      - "${KEYVALUE_PORT}:${KEYVALUE_PORT}"
+    command: >
+      valkey-server
+      --requirepass ${KEYVALUE_PASSWORD}
+      --maxmemory 512mb
+      --maxmemory-policy noeviction
+    restart: unless-stopped
+    volumes:
+      - keyvalue-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -p ${KEYVALUE_PORT} ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 2s
+    networks:
+      - terminus-network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+
+networks:
+  terminus-network:
+
+volumes:
+  certificates:
+  database-data:
+  keyvalue-data:

@@ -1,0 +1,56 @@
+<% current_screen = device.current_screen %>
+
+<%= render "shared/title", text: "Edit #{device.label} Device" %>
+
+<section class="bit-page page-devices">
+  <header class="bit-header">
+    <ul class="bit-breadcrumbs">
+      <li class="bit-breadcrumb"><%= link_to "Devices", routes.path(:devices), class: :link %></li>
+
+      <li class="bit-breadcrumb">
+        <%= link_to device.label, "/devices/#{device.id}", class: :link %>
+      </li>
+
+      <li class="bit-breadcrumb">Edit</li>
+    </ul>
+  </header>
+
+  <div class="bit-body">
+    <div class="bit-card device">
+      <h1 class="label">Edit Device</h1>
+
+      <%= render "shared/popovers/triggers/screen", name: "screen-#{current_screen.id}" do %>
+        <%= render "shared/screen", uri: current_screen.image_uri %>
+      <% end %>
+
+      <%= scope(:popover_screen_content, **current_screen.popover_attributes).render %>
+      <%= render "measurements", device: %>
+
+      <%= form_for :device, routes.path(:devices), method: :put, class: "bit-form" do |form| %>
+        <%= render "devices/shared/fields",
+                   form:,
+                   models:,
+                   playlists:,
+                   device:,
+                   fields: fields.value,
+                   errors: %>
+
+        <div class="form-actions">
+          <%= render "shared/actions/save",
+                     form:,
+                     verb: :put,
+                     path: routes.path(:device_update, id: device.id) %>
+
+          <a href="<%= routes.path :device, id: device.id %>"
+             class="bit-button-decline"
+             hx-get="<%= routes.path :device, id: device.id %>"
+             hx-trigger="click"
+             hx-target="closest .bit-page"
+             hx-push-url="true">
+             Cancel
+          </a>
+        </div>
+      <% end %>
+    </div>
+  </div>
+</section>

@@ -1,0 +1,27 @@
+<% current_screen = device.current_screen %>
+
+<li id="<%= device.id %>" class="bit-card device">
+  <h2 class="label"><%= device.label %></h2>
+
+  <%= render "shared/popovers/triggers/screen", name: "screen-#{current_screen.id}" do %>
+    <%= render "shared/screen", uri: current_screen.image_uri %>
+  <% end %>
+
+  <%= scope(:popover_screen_content, **current_screen.popover_attributes).render %>
+
+  <span>
+    <%= link_to device.model.label, routes.path(:model, id: device.model_id) %>
+  </span>
+
+  <%= render "measurements", device: %>
+
+  <div class="actions">
+    <%= render "shared/actions/show", path: routes.path(:device, id: device.id) %>
+    <%= render "shared/actions/edit", path: routes.path(:device_edit, id: device.id) %>
+    <%= render "shared/actions/logs", path: routes.path(:device_logs, device_id: device.id) %>
+
+    <%= render "shared/actions/delete",
+               path: routes.path(:device_delete, id: device.id),
+               subject: :device %>
+  </div>
+</li>

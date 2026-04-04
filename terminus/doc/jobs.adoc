@@ -1,0 +1,51 @@
+:toc: macro
+:toclevels: 5
+:figure-caption!:
+
+:trmnl_link: link:https://trmnl.com[TRMNL]
+
+= Jobs
+
+All background jobs are handled by the Sidekiq worker service. Most are created via the UI but a few are launched at application boot. The following jobs cache data from our {trmnl_link} server for improved performance and to keep common records in sync:
+
+* *Firmware*: Downloads the latest firmware for automatic device updates. By default, this checks for updates every six hours. In situations where your device updated to a newer Firmware version and it was a bad/broken version, you can revert to and older version by following these steps:
+** Ensure the device you want to downgrade has firmware updates turned on (you'll also want to ensure devices you don't want to downgrade have this setting _turned off_).
+** Visit the Firmwares page within the UI.
+** Delete all latest versions until you only have the version you want to downgrade to listed at the top of the list.
+** Short click the button on the back of your device to force a refresh and wait for the firmware downgrade to complete.
+* *Fonts*: Synchronizes {trmnl_link} fonts. New fonts, as they become available, are added as public assets. By default, this checks for updates once a day.
+* *Palette*: Synchronizes {trmnl_link} palettes. New palettes, as they become available, are added to the database while existing records are updated instead. By default, this checks for updates once a day.
+* *Model*: Synchronizes {trmnl_link} models. New models, as they become available, are added to the database while existing records are updated instead. Each model will have one to many palette names as provided by the Palette synchronizer mentioned above. By default, this checks for updates once a day.
+* *Screen*: Downloads device screens for any device you have set up to proxy via the {trmnl_link} server. You only need to toggle _proxy_ support for any/all devices you want to pull from TRMNL. This allows you to leverage any/all recipes/plugins you have configured via your remote account. By default, this checks for updates every five minutes.
+* *Sensor*: Synchronizes hosted (i.e. Raspberry Pi) sensor data for use when rendering screens on your devices. By default, this checks for updates every minute.
+
+== Configuration
+
+The configuration and cron schedule for all of these jobs can be found in the `config/sidekiq_scheduler.yml` file.
+
+== Restarts
+
+For local development, you can use {overmind_link} to restart the worker service which cause all jobs defined in `config/sidekiq_scheduler.yml` to be rerun. Example:
+
+[source,bash]
+----
+overmind restart worker
+----
+
+This can be handy if you want to force an update.
+
+== Disablement
+
+To disable any of the synchronizers, use the following environment variables:
+
+----
+FIRMWARE_SYNCHRONIZER=0
+MODEL_SYNCHRONIZER=0
+SCREEN_SYNCHRONIZER=0
+----
+
+You are not limited to using `0`. Any falsey value would work, example: `false`, "no", etc. When any of the pollers are disabled, you'll see the following messages in your logs (where `<poller>` is replaced with the specific poller that is disabled):
+
+----
+<synchronizer> synchronization disabled.
+----

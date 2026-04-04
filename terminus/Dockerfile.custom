@@ -1,0 +1,6 @@
+FROM ghcr.io/usetrmnl/terminus:latest
+
+# Fix: add missing "status": 200 field to /api/setup response.
+# Without this, the TRMNL firmware (which checks doc["status"] == 200)
+# silently discards the api_key and never authenticates.
+COPY app/models/firmware/setup.rb /app/app/models/firmware/setup.rb

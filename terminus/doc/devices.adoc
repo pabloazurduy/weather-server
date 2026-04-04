@@ -1,0 +1,60 @@
+:toc: macro
+:toclevels: 5
+:figure-caption!:
+
+:flash_link: link:https://trmnl.com/flash[Flash]
+:trmnl_api_link: link:https://trmnl.com/api-docs/index.html[TRMNL API]
+
+= Devices
+
+The following provides additional information when automatically or manually connecting devices to Terminus.
+
+toc::[]
+
+== WiFi
+
+Connecting devices requires using the WiFi captive portal on your mobile phone to connect your TRMNL device to your local network where this server is running. You can also delete your device, via the UI and/or API, and it'll be reconfigured for you automatically when the device next makes a link:api.adoc#display[Display API] request. For more information (including dealing with tricky WiFi situations), check out the help guides:
+
+* link:https://help.usetrmnl.com/en/articles/12263392-connect-your-device-to-terminus-byos[How to connect your device to Terminus].
+* link:https://help.usetrmnl.com/en/articles/11663377-setting-up-a-trmnl-on-tricky-wi-fi-situations[Dealing with tricky Wi-Fi situations].
+
+== Models
+
+Terminus supports multiple models (as found via the _Models_ page within the UI). These models are used during the device auto-provisioning process to ensure your device is associated with the correct model for rendering screens on your device. That said, some devices require special care as documented below.
+
+=== CrowPanel ESP32 4.2inch E-paper
+
+⚠️ **Currently, not supported but might be in the future.**
+
+* link:https://www.elecrow.com[Site]: Visit the web site to learn more.
+* link:https://www.elecrow.com/crowpanel-esp32-4-2-e-paper-hmi-display-with-400-300-resolution-black-white-color-driven-by-spi-interface.html[Model]: The product page.
+
+=== Lilygo T5 E-Paper S3 Pro
+
+⚠️ **Currently, not supported is being worked on.**
+
+* link:https://lilygo.cc[Site]: Visit the web site to learn more.
+* link:https://lilygo.cc/products/t5-e-paper-s3-pro?variant=51702172385461[Model]: The product page.
+
+Great for development purposes especially if you want a quick way to test sensors.
+
+=== TRMNL OG (B/W/R/Y)
+
+⚠️ **Requires Firmware 1.7.6.** Ensure you disable automatic firmware updates once the device is provisioned or you'll be stuck with a loading screen only showing the TRMNL logo in the right hand corner of the screen. You'll probably need to {flash_link} the device before using.
+
+=== Waveshare ESP32-S3 ePaper Development Board
+
+⚠️ **Currently, not supported but might be in the future.**
+
+* link:https://www.waveshare.com[Site]: Visit the web site to learn more.
+* link:https://www.waveshare.com/esp32-s3-epaper-3.97.htm?sku=33810[Model]: The product page.
+
+=== XTEINK X4
+
+⚠️ **Requires Firmware 1.7.4** Ensure you disable automatic firmware updates once the device is provisioned or you'll be stuck with a loading screen only showing the TRMNL logo in the right hand corner of the screen. Despite having a _Xteink X4_ you must use the _TRMNL OG (1-bit)_ model to properly render screens (this is automatically applied by default). You'll probably need to {flash_link} the device before using.
+
+Provides a slim design that supports 800x480 resolutions like our TRMNL OG devices. The only downside is that the WiFi signal is weaker so range is limited.
+
+* link:https://www.xteink.com[Site]: Visit the web site to learn more.
+* link:https://www.xteink.com/products/xteink-x4[Model]: The product page.
+* link:https://trmnl.com/blog/xteink-x4-dashboard[TRMNL Article]: Walks you through setting up the X4 using our Core server but some of what is documented is useful for Terminus setup as well.

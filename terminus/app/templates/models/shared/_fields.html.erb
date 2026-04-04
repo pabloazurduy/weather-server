@@ -1,0 +1,197 @@
+<fieldset class="column">
+  <%= scope(:form_field, key: :label, errors:).render do %>
+    <label class="key" for="model_label">
+      Label
+      <%= render "shared/popovers/triggers/default", name: :label %>
+    </label>
+
+    <%= form.text_field :label,
+                        id: :model_label,
+                        value: field_for(:label, fields, model),
+                        class: :value,
+                        autocomplete: :off %>
+  <% end %>
+
+  <%= scope(:form_field, key: :name, errors:).render do %>
+    <label class="key" for="model_name">
+      Name
+      <%= render "shared/popovers/triggers/default", name: :name %>
+    </label>
+
+    <%= form.text_field :name,
+                        id: :model_name,
+                        value: field_for(:name, fields, model),
+                        class: :value,
+                        autocomplete: :off %>
+  <% end %>
+
+  <%= scope(:form_field, key: :description, errors:).render do %>
+    <label class="key" for="model_description">
+      Description
+      <%= render "shared/popovers/triggers/default", name: :description %>
+    </label>
+
+    <%= form.text_field :description,
+                        id: :model_description,
+                        value: field_for(:description, fields, model),
+                        class: :value,
+                        autocomplete: :off %>
+  <% end %>
+
+  <%= scope(:form_field, key: :mime_type, errors:).render do %>
+    <label class="key" for="model_mime_type">
+      MIME Type
+      <%= render "shared/popovers/triggers/default", name: :mime_type %>
+    </label>
+
+    <%= form.text_field :mime_type,
+                        id: :model_mime_type,
+                        value: field_for(:mime_type, fields, model),
+                        class: :value,
+                        autocomplete: :off %>
+  <% end %>
+
+  <%= scope(:form_field, key: :colors, errors:).render do %>
+    <label class="key" for="model_colors">
+      Colors
+      <%= render "shared/popovers/triggers/default", name: :colors %>
+    </label>
+
+    <%= form.number_field :colors,
+                          id: :model_colors,
+                          value: field_for(:colors, fields, model),
+                          class: :value %>
+  <% end %>
+
+  <%= scope(:form_field, key: :bit_depth, errors:).render do %>
+    <label class="key" for="model_bit_depth">
+      Bit Depth
+      <%= render "shared/popovers/triggers/default", name: :bit_depth %>
+    </label>
+
+    <%= form.number_field :bit_depth,
+                          id: :model_bit_depth,
+                          value: field_for(:bit_depth, fields, model),
+                          class: :value %>
+  <% end %>
+
+  <%= scope(:form_field, key: :rotation, errors:).render do %>
+    <label class="key" for="model_rotation">
+      Rotation
+      <%= render "shared/popovers/triggers/default", name: :rotation %>
+    </label>
+
+    <%= form.number_field :rotation,
+                          id: :model_rotation,
+                          value: field_for(:rotation, fields, model),
+                          class: :value %>
+  <% end %>
+
+  <%= scope(:form_field, key: :offset_x, errors:).render do %>
+    <label class="key" for="model_offset_x">
+      X Offset
+      <%= render "shared/popovers/triggers/default", name: :offset_x %>
+    </label>
+
+    <%= form.number_field :offset_x,
+                          id: :model_offset_x,
+                          value: field_for(:offset_x, fields, model),
+                          class: :value %>
+  <% end %>
+
+  <%= scope(:form_field, key: :offset_y, errors:).render do %>
+    <label class="key" for="model_offset_y">
+      Y Offset
+      <%= render "shared/popovers/triggers/default", name: :offset_y %>
+    </label>
+
+    <%= form.number_field :offset_y,
+                          id: :model_offset_y,
+                          value: field_for(:offset_y, fields, model),
+                          class: :value %>
+  <% end %>
+
+  <%= scope(:form_field, key: :scale_factor, errors:).render do %>
+    <label class="key" for="model_scale_factor">
+      Scale Factor
+      <%= render "shared/popovers/triggers/default", name: :scale_factor %>
+    </label>
+
+    <%= form.number_field :scale_factor,
+                          id: :model_scale_factor,
+                          value: field_for(:scale_factor, fields, model),
+                          class: :value %>
+  <% end %>
+
+  <%= scope(:form_field, key: :width, errors:).render do %>
+    <label class="key" for="model_width">
+      Width
+      <%= render "shared/popovers/triggers/default", name: :width %>
+    </label>
+
+    <%= form.number_field :width,
+                          id: :model_width,
+                          value: field_for(:width, fields, model),
+                          class: :value %>
+  <% end %>
+
+  <%= scope(:form_field, key: :height, errors:).render do %>
+    <label class="key" for="model_height">
+      Height
+      <%= render "shared/popovers/triggers/default", name: :height %>
+    </label>
+
+    <%= form.number_field :height,
+                          id: :model_height,
+                          value: field_for(:height, fields, model),
+                          class: :value %>
+  <% end %>
+
+  <%= scope(
+        :form_field,
+        key: :palette_names,
+        errors:,
+        alpine: {data: "{palette_names: #{model ? model.alpine_palettes : []}, nascence: '', index: 0}"}
+      ).render do %>
+
+    <%= form.hidden_field :palette_names, id: :model_palette_names, "x-bind:value" => "palette_names.join(' ')" %>
+
+    <label class="key" for="palette_names">
+      Palette IDs
+      <%= render "shared/popovers/triggers/default", name: :palettes %>
+    </label>
+
+    <%= tag.input id: :palette_names,
+                  name: :palette_names,
+                  class: :value,
+                  placeholder: "Type your ID and hit enter to create.",
+                  "x-model" => "nascence",
+                  "x-on:keydown.enter.prevent" => "if (nascence.trim() !== '') { palette_names.push(nascence.trim()); nascence = '';}" %>
+
+    <div class="bit-pills">
+      <template x-for="(id, index) in palette_names" x-bind="index">
+        <button type="button"
+                class="bit-pill bit-pill-active"
+                x-text="id"
+                x-on:click="palette_names.splice(index, 1)">
+        </button>
+      </template>
+    </div>
+  <% end %>
+
+  <%= scope(:form_field, key: :css, errors:).render do %>
+    <label class="key" for="model_css">
+      CSS
+      <%= render "shared/popovers/triggers/default", name: :css %>
+    </label>
+
+    <%= form.text_area :css,
+                       field_for(:formatted_css, fields, model),
+                       id: :model_css,
+                       class: "bit-editor",
+                       autocomplete: :off,
+                       data: {language: :json} %>
+  <% end %>
+</fieldset>
+
+<%= render "models/shared/popovers/all" %>

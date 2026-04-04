@@ -1,0 +1,28 @@
+# frozen_string_literal: true
+
+module Terminus
+  module Actions
+    module Playlists
+      module Items
+        # The new action.
+        class New < Action
+          include Deps[
+            "aspects.playlists.screen_optioner",
+            playlist_repository: "repositories.playlist"
+          ]
+
+          params { required(:playlist_id).filled :integer }
+
+          def handle request, response
+            parameters = request.params
+
+            halt 422 unless parameters.valid?
+
+            playlist = playlist_repository.find parameters[:playlist_id]
+            response.render view, playlist:, screen_options: screen_optioner.call, layout: false
+          end
+        end
+      end
+    end
+  end
+end

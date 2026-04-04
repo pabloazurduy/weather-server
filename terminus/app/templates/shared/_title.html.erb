@@ -1,0 +1,4 @@
+<% content = "#{text} | Terminus" %>
+
+<% content_for :title, content %>
+<%= tag.title content if htmx? %>

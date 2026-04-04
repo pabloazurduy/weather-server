@@ -1,0 +1,309 @@
+:toc: macro
+:toclevels: 5
+:figure-caption!:
+
+:chrome_link: link:https://www.google.com/chrome[Google Chrome]
+:core_api_link: link:https://trmnl.com/api-docs/index.html[Core API]
+:devices_link: link:doc/devices.adoc[Devices]
+:docker_doc_link: link:doc/docker.adoc[Docker]
+:docker_link: link:https://www.docker.com[Docker]
+:dragonfly_link: link:https://www.dragonflydb.io[Dragonfly]
+:esbuild_link: link:https://esbuild.github.io[esbuild]
+:extensions_link: link:doc/extensions.adoc[Extensions]
+:firmware_link: link:https://github.com/usetrmnl/trmnl-firmware[Firmware]
+:git_link: link:https://git-scm.com[Git]
+:hadolint_link: link:https://github.com/hadolint/hadolint[Haskell Dockerfile Linter]
+:hanami_link: link:https://hanamirb.org[Hanami]
+:htmx_link: link:https://htmx.org[htmx]
+:imagemagick_link: link:https://imagemagick.org[ImageMagick]
+:jobs_link: link:doc/jobs.adoc[Jobs]
+:milestoner_link: link:https://alchemists.io/projects/milestoner[Milestoner]
+:node_link: link:https://nodejs.org[Node]
+:overmind_link: link:https://github.com/DarthSim/overmind[Overmind]
+:postgres_link: link:https://www.postgresql.org[PostgreSQL]
+:puma_link: link:https://puma.io[Puma]
+:rack_attack_link: link:https://github.com/rack/rack-attack[Rack Attack]
+:raspberry_pi_link: link:doc/raspberry_pi.adoc[Raspberry PI]
+:redis_link: link:https://redis.io[Redis]
+:render_link: link:https://render.com[Render]
+:rodauth_link: link:https://rodauth.jeremyevans.net[Rodauth]
+:ruby_link: link:https://www.ruby-lang.org[Ruby]
+:sidekiq_link: link:https://github.com/sidekiq/sidekiq[Sidekiq]
+:trmnl_framework_link: link:https://trmnl.com/framework[Framework]
+:trmnl_link: link:https://trmnl.com[TRMNL]
+:unbrickable_pledge_link: link:https://trmnl.com/blog/the-unbrickable-pledge[Unbrickable Pledge]
+:valkey_link: link:https://valkey.io[Valkey]
+:yjit_link: link:https://docs.ruby-lang.org/en/master/jit/yjit_md.html[YJIT]
+:youtube_link: link:https://www.youtube.com/@useTRMNL[YouTube]
+
+= Terminus
+
+image:https://dl.circleci.com/status-badge/img/gh/usetrmnl/terminus/tree/main.svg?style=svg[CircleCI, link=https://dl.circleci.com/status-badge/redirect/gh/usetrmnl/terminus/tree/main]
+image:https://github.com/usetrmnl/terminus/actions/workflows/docker.yml/badge.svg[Docker, link="https://github.com/usetrmnl/terminus/actions"]
+image:https://alchemists.io/images/projects/caliber/coverage.svg[Code Coverage, link=https://dl.circleci.com/status-badge/redirect/gh/usetrmnl/terminus/tree/main, width=139.1, height=20]
+image:https://alchemists.io/images/badges/style.svg[Style, link=https://alchemists.io/projects/caliber, width=81, height=20]
+
+Terminus is a {ruby_link}/{hanami_link} web server that allows you to manage {trmnl_link} devices running on your own local network or hosted cloud. This is our flagship BYOS implementation that aims to be compatible with our {trmnl_link} Core server but _also different_ since this open source solution provides features not possible in our Core application.
+
+For a quick introduction on TRMNL devices, check out the following 9to5Mac overview:
+
+link:https://www.youtube.com/watch?v=BxMRP_ASa-s[image:https://img.youtube.com/vi/BxMRP_ASa-s/maxresdefault.jpg[YouTube Video,width=960,height=540]]
+
+image:https://render.com/images/deploy-to-render-button.svg[Deploy to Render,link=https://render.com/deploy]
+
+⚠️ This is a Beta software as we haven't reached 1.0.0 status as of yet. This means -- while we strive to reduce the number of changes that require effort on your part to a minimum -- there will be times when changes can't be avoided.
+
+toc::[]
+
+== Features
+
+* Provides privacy first functionality by empowering you to run your own private server, network, and devices. You own the stack and the data. 🎉
+* Built atop {ruby_link} and {hanami_link}.
+* Uses {esbuild_link} for asset management.
+* Uses {htmx_link} for Hypermedia-Driven user interfaces.
+* Uses {imagemagick_link} for image processing.
+* Uses {overmind_link} for running multiple processes.
+* Uses {postgres_link} for the database.
+* Uses {puma_link} for the server.
+* Uses {rodauth_link} for authentication.
+* Uses {sidekiq_link} for worker jobs.
+* Uses {valkey_link} for the key/value cache.
+* Supports {yjit_link}.
+* Supports {docker_link}.
+* Supports {trmnl_link} devices.
+
+The following is a high level overview you can use to compare/contrast when deciding between using this Build Your Own Server (BYOS) implementation or our link:https://trmnl.com[hosted] solution.
+
+*Legend*
+
+* ⚪️ Planned.
+* 🟢 Supported.
+* 🟡 Partially supported.
+* 🔴 Not supported, not implemented, or isn't applicable.
+
+*Matrix*
+
+The following documents the features supported in this implementation which are similar to our {trmnl_link} Core server. While we aim to be compatible with Core, the experience will be slightly different in look, feel, and behavior.
+
+[options="header"]
+|===
+|                                   | Terminus | Hosted
+| Dashboard                         | 🟢       | 🟢
+| Auto-Provisioning                 | 🟢       | 🟢
+| Devices                           | 🟢       | 🟢
+| Sensors                           | 🟢       | 🟢
+| JSON Data API                     | 🟢       | 🟢
+| Image Previews                    | 🟢       | 🟢
+| Playlists                         | 🟢       | 🟢
+| Plugins                           | 🟡       | 🟢
+| Account Management                | 🟢       | 🟢
+| Docker                            | 🟢       | 🔴
+|===
+
+== Requirements
+
+* {git_link}.
+* {ruby_link}.
+* {hanami_link}.
+* {node_link}.
+* {postgres_link}.
+* {valkey_link}: Can be swapped out for {redis_link} or {dragonfly_link} if desired.
+* {hadolint_link} (optional, for development): For `Dockerfile` linting.
+* {chrome_link} (optional, for development): For screen generation via the headless browser.
+* {overmind_link} (optional, for development): Uses your `Procfile` to launch processes.
+* {docker_link} (optional when only using Ruby).
+* {trmnl_link} device (optional, you can use virtual devices).
+
+== Quick Start
+
+To immediately spin up Terminus on your local machine using {docker_link}, run:
+
+[source,bash]
+----
+curl https://raw.githubusercontent.com/usetrmnl/terminus/refs/heads/main/scripts/docker/quick.sh | bash
+----
+
+Once launched, open `http://localhost:2300` in your browser then click the _Register_ link to register and log into the system.
+
+⚠️ This script is not idempotent which means you can't run it more than once since your database credentials will be different each time. This is only meant for getting up and running quickly to explore the feature set, not permanent use. For permanent use, see the link:doc/docker.adoc[Docker] documentation.
+
+== Setup
+
+To set up this project for local development, run:
+
+[source,bash]
+----
+git clone https://github.com/usetrmnl/terminus
+cd terminus
+bin/setup
+----
+
+💡 The setup script is idempotent so you can run it multiple times without harm. To rebuild a file managed by the setup script, delete the desired file and rerun setup to recreate.
+
+== Upgrade
+
+To upgrade this project for local development, run:
+
+[source,bash]
+----
+cd terminus
+bin/upgrade
+----
+
+Watch for any changes that need to be addressed in the output. Otherwise, if no changes are detected, you are set.
+
+== Usage
+
+To launch the server, run:
+
+[source,bash]
+----
+# Development
+overmind start --port-step 10 --procfile Procfile.dev --can-die assets,migrate
+
+# Production
+overmind start --port-step 10 --can-die assets,migrate
+----
+
+To view the app, use either of the following:
+
+* *Secure*: https://localhost:2443
+* *Insecure*: http://localhost:2300
+
+From your browser, you can then click on the _Register_ link to register and log into the system.
+
+=== Configuration
+
+There are several environment variables you can use to customize behavior by updating the `.env` file created for you during setup. They are:
+
+* `API_ACCESS_TOKEN_PERIOD`: Used to set the amount of time, in seconds, the JWT access token remains valid before needing to refresh your token. This is only necessary when using the link:doc/api.adoc[Server APIs]. Default: 1,800 seconds (30 minutes).
+* `APP_SECRET`: Used for session, cookie, and Cross-Site Request Forgery (CSRF) protection. This is automatically created for you during setup but is recommended that you update this with your own secure value.
+* `APP_SETUP`: Runs setup/update steps (i.e. asset compilation, database migrations, etc). Used by Docker only via the `entrypoint` script. Default: `nil` but `true` for the web service.
+* `API_URI`: Used for connecting your device to this server or via link:doc/docker.adoc[Docker]. Defaults to your host machine's IP address and port. This assumes you are connecting your device directly to the same server Terminus is running on. If this is not the case and you are using a reverse proxy, DNS, or any service/layer between your device and Terminus then you need to update this value to be your host. For example, if your host is `http://demo.io` then this value must be `http://demo.io`. This includes updating your device, via the TRMNL captive Wifi portal, to use `http://demo.io` as your custom host too. How you configure `http://demo.io` to resolve to the server you are running Terminus on is up to you. All your device (and this value) cares about is what the external host (or IP and port) is for the device to make API requests too (they must be identical).
+* `BROWSER`: Used for configuring headless browser behavior when creating screens for your device. Must be a JSON object. Default: `'{"js_errors": true, "process_timeout": 10, "timeout": 10}'`. Additional keys are ignored. For more details, see the link:https://github.com/rubycdp/ferrum#customization[Ferrum Customization Documentation].
+* `CERTIFICATE_URLS`: Defines a comma-separated list of CA certificate URLs which will be automatically installed as trusted certificates. Example: `"https://example.io/ca1.crt,https://example.org/ca2.pem"` Used by {docker_doc_link} only.
+* `DATABASE_NAME`: Defines your database name. Used by {docker_doc_link} only. Default: `terminus`.
+* `DATABASE_PASSWORD`: Defines your database password. Used by {docker_doc_link} only. Default: (auto-generated for you during setup).
+* `DATABASE_PORT`: Defines your database port. Used by {docker_doc_link} only. Default: `5432`.
+* `DATABASE_URL`: Defines the full URL based on the `+DATABASE_*+` settings. This is automatically configured for you during setup. See your `+.env*+` files for details.
+* `DATABASE_URL`: Necessary to connect to your {postgres_link} database. Can be customized by changing the value in the `.env.development` or `.env.test` file created when you ran `bin/setup`.
+* `DATABASE_USER`: Defines your database user. Used by {docker_doc_link} only. Default: `terminus`.
+* `FIRMWARE_SYNCHRONIZER`: Enables/disables firmware synchronization. See {jobs_link} for details. Defaults to enabled.
+* `FONTS_PATH`: The path to where {trmnl_framework_link} fonts are stored since the Framework stylesheets require a relative path to all fonts to load properly. This is necessary when rendering screens for {extensions_link}. Default: `public/fonts`.
+* `HANAMI_PORT`: The default port when running the app locally or via {docker_doc_link}. When using Docker, this is used for the internal and external port mapping.
+* `KEYVALUE_DATABASE`: Defines your database ID. Used by {docker_doc_link} only. Default: `0`.
+* `KEYVALUE_PASSWORD`: Defines your password. Used by {docker_doc_link} only. Default: (auto-generated for you during setup).
+* `KEYVALUE_PORT`: Defines your port. Used by {docker_doc_link} only. Default: `6379`.
+* `KEYVALUE_URL`: Defines the full URL based on the above `+KEYVALUE_*+` settings. This is automatically configured for you during setup. See your `+.env*+` files for details.
+* `MODEL_SYNCHRONIZER`: Enables/disables model synchronization. See {jobs_link} for details. Defaults to enabled.
+* `RACK_ATTACK_ALLOWED_SUBNETS`: Defines the {rack_attack_link} subnets that are allowed to connect to this server which helps when adding DNS, a reverse proxy, or a VPN, etc. between your device and this application so you can use this environment variable to add more subnets as desired. This takes a single subnet/IP or an array -- with no spaces -- of subnets/IPs as values. Example: "111.111.111.111,150.120.0.0/16". Alternatively, you can disable Rack Attack altogether by removing the `config.middleware.use Rack::Attack` line from `config/app.rb` or customize Rack Attack via the `config/initializers/rack_attack.rb` file. Any of these approaches will allow you to get your service layer properly configured so your device can talk to this server. By default, the following subnets are allowed: `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `127.0.0.1`, and `::1`.
+* `SENSORS_PATH`: The path to where sensor information is written. See {raspberry_pi_link} for details. Default: `public/sensors.json`.
+* `SCREEN_SYNCHRONIZER`: Enables/disables device proxied screen synchronization. See {jobs_link} for details. Defaults to enabled.
+
+=== Users
+
+When launching this application for the first time, there will be no users. The first user to register will automatically be given _Verified_ status along with full access to the system. All subsequent users will marked as _Unverified_ and must be manually _Verified_ in order to have access to the system. In the future, more fine grained control will be provided for individual users, roles, and permissions.
+
+Also, once logged in, you can manage your settings as follows:
+
+* Visit `/me/login` to update your email address.
+* Visit `/me/password` to update your password.
+* Visit `/me/remember` to enable, disable, or forget if you should be remembered.
+
+=== Devices
+
+See {devices_link} documentation for details.
+
+=== Firmware
+
+In accordance with the {unbrickable_pledge_link}, the latest version of Terminus always supports the latest version of our {firmware_link}. If you are running on older firmware, you'll need to use an older version of Terminus. Here's a rough breakdown of the Firmware version history where changes were applied that might cause issues if you haven't upgraded your devices in a while:
+
+* *Firmware 1.6.9* (and lower): Supported by Terminus link:https://github.com/usetrmnl/terminus/releases/tag/0.41.0[0.41.0] and lower.
+* *Firmware 1.6.10* (and higher): Supported by Terminus link:https://github.com/usetrmnl/terminus/releases/tag/0.42.0[0.42.0] and higher.
+
+=== Extensions
+
+See {extensions_link} documentation for details.
+
+=== Jobs
+
+See {jobs_link} documentation for details on {sidekiq_link} worker jobs.
+
+=== API
+
+See link:doc/api.adoc[API] documentation for details.
+
+=== Docker
+
+See link:doc/docker.adoc[Docker] documentation for details.
+
+=== Raspberry Pi
+
+See {raspberry_pi_link} documentation for details.
+
+=== Kubernetes
+
+See link:doc/kubernetes.adoc[Kubernetes] documentation for details.
+
+=== Render
+
+See link:doc/render.adoc[Render] documentation for details.
+
+== Development
+
+See link:doc/development.adoc[Development] documentation for details.
+
+== Tests
+
+To test, run:
+
+[source,bash]
+----
+bin/rake
+----
+
+== Code Quality
+
+Code quality is an important and vital aspect of the work on this project. The following gems are used to ensure our work remains consistent and of high quality:
+
+* link:https://alchemists.io/projects/git-lint[Git Lint]: Ensures Git commit messages are well written and consistent for code review but also for automatic release note generation via {milestoner_link}.
+* link:https://alchemists.io/projects/caliber[Caliber]: Ensures code is consistent in terms of style, layout, performance, best practices, etc.
+* link:https://github.com/troessner/reek[Reek]: Augments Caliber by detecting code smells and antipatterns.
+* link:https://rspec.info[RSpec]: Provides a specification and testing framework for unit and integration tests.
+* link:https://github.com/simplecov-ruby/simplecov[SimpleCov]: Generates interactive reports with every CI build. Will fail the build if quality drops below 95%. ⚠️ The badge at the top of this document isn't updated in real-time, unfortunately, but is fairly accurate.
+
+To view up-to-date code coverage details, follow these steps:
+
+* Visit the link:https://app.circleci.com/pipelines/github/usetrmnl/terminus?branch=main[Circle CI] build page.
+* Click on the latest "Success" build at the top of the page.
+* Click on `build`.
+* Click on ARTIFACTS.
+* Click on the `coverage/index.html` file.
+
+At this point you can click through the tabs at the top of the page to inspect the various namespaces that make up this application.
+
+== Versions
+
+To view all versions and the complete release history to this project -- including detailed notes of all changes -- run the following:
+
+[source,bash]
+----
+cd terminus
+gem install milestoner
+milestoner build --max 1000 --format web
+ruby -run -e httpd tmp/milestones --port 3030
+open http://127.0.0.1:3030
+----
+
+We are working on automating this across multiple projects, not only Terminus, because {milestoner_link} also generates a complete syndicated feed of release notes as well. This means, in the future, you'll be able to subscribe to all updates via your feed reader. 🎉
+
+💡 You can also subscribe to our {youtube_link} channel and get occasional version release video updates too.
+
+== License
+
+While this project is distributed under the permissive link:/LICENSE.adoc[MIT License], we strongly believe that technology should serve humanity's best interests. We created this software with the intent that it be used to benefit people and communities, not to cause harm. We encourage individuals and organizations to consider the ethical implications and to use this project in ways that respect human rights, promote equity, and contribute positively to society. Though we cannot legally restrict usage under the MIT License, we ask that you join us in fostering a responsible technology ecosystem by avoiding applications that could cause harm, perpetuate discrimination, or undermine human dignity. Technology is best used to enrich lives, let's ensure we build a better world together!
+
+== Credits
+
+* Built with link:https://alchemists.io/projects/hanamismith[Hanamismith].
+* Engineered by {trmnl_link}.
