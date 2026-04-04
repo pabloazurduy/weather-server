@@ -4,3 +4,12 @@ FROM ghcr.io/usetrmnl/terminus:latest
 # Without this, the TRMNL firmware (which checks doc["status"] == 200)
 # silently discards the api_key and never authenticates.
 COPY app/models/firmware/setup.rb /app/app/models/firmware/setup.rb
+
+# Bake model seed data so it runs automatically after every db migrate.
+# Uses ON CONFLICT DO NOTHING — fully idempotent.
+COPY models_seed.sql /app/models_seed.sql
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["bundle", "exec", "hanami", "server"]
