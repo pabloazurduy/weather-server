@@ -58,6 +58,22 @@ def _wind_direction(deg: float) -> str:
 
 
 def _weather_kind_from_owm(weather: dict) -> str:
+    icon_code = str(weather.get("icon", ""))
+    if icon_code.startswith("01"):
+        return "moon" if icon_code.endswith("n") else "sun"
+    if icon_code.startswith("02"):
+        return "partly-night" if icon_code.endswith("n") else "partly"
+    if icon_code.startswith(("03", "04")):
+        return "cloud"
+    if icon_code.startswith(("09", "10")):
+        return "rain"
+    if icon_code.startswith("11"):
+        return "storm"
+    if icon_code.startswith("13"):
+        return "snow"
+    if icon_code.startswith("50"):
+        return "fog"
+
     code = int(weather.get("id", 0))
     if 200 <= code < 300:
         return "storm"
@@ -122,8 +138,17 @@ def _draw_weather_icon(draw: ImageDraw.ImageDraw, x: float, y: float,
         _icon_text(draw, (x, y), "☀", int(size * 0.95))
         return
 
+    if kind == "moon":
+        _icon_text(draw, (x, y), "☾", int(size * 0.95))
+        return
+
     if kind == "partly":
         _icon_text(draw, (x, y - 2), "☀", int(size * 0.8))
+        _icon_text(draw, (x + size // 4, y + size // 6), "☁", int(size * 0.9))
+        return
+
+    if kind == "partly-night":
+        _icon_text(draw, (x, y - 2), "☾", int(size * 0.8))
         _icon_text(draw, (x + size // 4, y + size // 6), "☁", int(size * 0.9))
         return
 
@@ -140,8 +165,10 @@ def _draw_weather_icon(draw: ImageDraw.ImageDraw, x: float, y: float,
     _icon_text(draw, (x, y + size // 10), "☁", int(size * 0.95))
 
     if kind == "rain":
+        rain_top = y + size + 1
+        rain_bottom = y + size + 8
         for offset in (6, 12, 18):
-            draw.line([x + offset, y + size - 6, x + offset - 2, y + size - 1],
+            draw.line([x + offset, rain_top, x + offset - 2, rain_bottom],
                       fill=0, width=2)
     elif kind == "snow":
         _icon_text(draw, (x + size // 3, y + size // 2), "❄", int(size * 0.55))
@@ -157,8 +184,8 @@ def _draw_weather_icon(draw: ImageDraw.ImageDraw, x: float, y: float,
 def _draw_daily_forecast(draw: ImageDraw.ImageDraw, rect, daily: list):
     x0, y0, x1, y1 = rect
     if not daily:
-        _text(draw, (x0, y0 + 16), "7-day forecast", 14, bold=True)
-        _text(draw, (x0, y0 + 38), "temporarily unavailable", 12)
+        _text(draw, (x0, y0 + 16), "7-day forecast", 15, bold=True)
+        _text(draw, (x0, y0 + 38), "temporarily unavailable", 13)
         return
 
     temp_floor = math.floor(min(day["temp_min"] for day in daily) - 1)
@@ -171,29 +198,29 @@ def _draw_daily_forecast(draw: ImageDraw.ImageDraw, rect, daily: list):
         row_mid = row_y + row_h // 2
         date_obj = datetime.date.fromisoformat(day["date"])
         label = date_obj.strftime("%a %-d")
-        prob_x = x0 + 52
-        icon_x = x0 + 92
+        prob_x = x0 + 60
+        icon_x = x0 + 100
 
         if idx > 0:
             draw.line([x0, row_y, x1, row_y], fill=220, width=1)
 
-        _text(draw, (x0, row_mid), label, 12, bold=True, anchor="lm")
+        _text(draw, (x0, row_mid), label, 14, bold=True, anchor="lm")
         if day.get("rain_prob") is not None:
-            _text(draw, (prob_x, row_mid), f"{day['rain_prob']}%", 11, bold=True, anchor="lm")
-        _draw_weather_icon(draw, icon_x, row_mid - 12, day["kind"], 24)
+            _text(draw, (prob_x, row_mid), f"{day['rain_prob']}%", 13, bold=True, anchor="lm")
+        _draw_weather_icon(draw, icon_x, row_mid - 20, day["kind"], 26)
 
-        bar_x0 = x0 + 136
-        bar_x1 = x1 - 34
-        draw.line([bar_x0, row_mid, bar_x1, row_mid], fill=180, width=6)
+        bar_x0 = x0 + 148
+        bar_x1 = x1 - 38
+        draw.line([bar_x0, row_mid, bar_x1, row_mid], fill=180, width=7)
 
         seg_x0 = bar_x0 + int(((day["temp_min"] - temp_floor) / temp_span) * (bar_x1 - bar_x0))
         seg_x1 = bar_x0 + int(((day["temp_max"] - temp_floor) / temp_span) * (bar_x1 - bar_x0))
         seg_x1 = max(seg_x1, seg_x0 + 8)
-        draw.rounded_rectangle([seg_x0, row_mid - 5, seg_x1, row_mid + 5],
-                               radius=5, fill=0)
+        draw.rounded_rectangle([seg_x0, row_mid - 6, seg_x1, row_mid + 6],
+                               radius=6, fill=0)
 
-        _text(draw, (bar_x0 - 8, row_mid), f"{day['temp_min']:.0f}°", 12, anchor="rm")
-        _text(draw, (x1, row_mid), f"{day['temp_max']:.0f}°", 12, anchor="rm")
+        _text(draw, (bar_x0 - 8, row_mid), f"{day['temp_min']:.0f}°", 13, anchor="rm")
+        _text(draw, (x1, row_mid), f"{day['temp_max']:.0f}°", 13, anchor="rm")
 
 
 def _draw_bar_chart(draw: ImageDraw.ImageDraw, rect, data_mmh: list,
@@ -248,42 +275,129 @@ def _draw_bar_chart(draw: ImageDraw.ImageDraw, rect, data_mmh: list,
     _text(draw, (x1 - 2, y1 - 32), f"{min_temp:.0f}°", 9, anchor="ra")
 
 
+def _rain_segments(rain_forecast: dict) -> list[dict]:
+    segments = []
+    end_ts = rain_forecast["end_ts"]
+    seen_groups = set()
+    for point in rain_forecast["points"]:
+        group_start_ts = int(point["group_start_ts"])
+        if group_start_ts in seen_groups:
+            continue
+        seen_groups.add(group_start_ts)
+        duration_seconds = int(point["duration_minutes"]) * 60
+        segments.append(
+            {
+                "start_ts": group_start_ts,
+                "end_ts": min(group_start_ts + duration_seconds, end_ts),
+                "mmh": float(point["mmh"]),
+            }
+        )
+    return segments
+
+
+def _draw_proportional_chart(
+    draw: ImageDraw.ImageDraw,
+    rect,
+    rain_forecast: dict,
+    temp_forecast: list,
+):
+    x0, y0, x1, y1 = rect
+    w = x1 - x0
+    plot_bottom = y1 - 28
+    plot_height = plot_bottom - y0
+    start_ts = int(rain_forecast["start_ts"])
+    end_ts = int(rain_forecast["end_ts"])
+    total_span = max(end_ts - start_ts, 1)
+    rain_segments = _rain_segments(rain_forecast)
+
+    actual_max_mmh = max((segment["mmh"] for segment in rain_segments), default=0.0)
+    scale_max_mmh = max(actual_max_mmh, 1.0)
+    temp_values = [point["temp_c"] for point in temp_forecast]
+    min_temp = min(temp_values) if temp_values else 0.0
+    max_temp = max(temp_values) if temp_values else 1.0
+    display_min_temp = math.floor(min_temp - 5.0)
+    display_max_temp = math.ceil(max_temp + 5.0)
+    display_temp_range = max(display_max_temp - display_min_temp, 10.0)
+
+    def x_for(timestamp: int) -> int:
+        return x0 + int(((timestamp - start_ts) / total_span) * (w - 2))
+
+    def y_for_temp(temp_c: float) -> int:
+        ratio = (temp_c - display_min_temp) / display_temp_range
+        ratio = max(0.0, min(1.0, ratio))
+        return plot_bottom - int(ratio * (plot_height - 8))
+
+    for segment in rain_segments:
+        if segment["mmh"] <= 0:
+            continue
+        bar_height = max(1, int((segment["mmh"] / scale_max_mmh) * plot_height))
+        seg_x0 = x_for(segment["start_ts"])
+        seg_x1 = max(x_for(segment["end_ts"]), seg_x0 + 1)
+        draw.rectangle([seg_x0, plot_bottom - bar_height, seg_x1 - 1, plot_bottom], fill=180)
+
+    draw.line([x0, plot_bottom, x1, plot_bottom], fill=0, width=1)
+
+    if display_min_temp <= 0 <= display_max_temp:
+        zero_y = y_for_temp(0.0)
+        dash_start = x0
+        while dash_start < x1:
+            dash_end = min(dash_start + 5, x1)
+            draw.line([dash_start, zero_y, dash_end, zero_y], fill=170, width=1)
+            dash_start += 9
+
+    if len(temp_forecast) >= 2:
+        points = []
+        for point in temp_forecast:
+            px = x_for(int(point["ts"]))
+            py = y_for_temp(float(point["temp_c"]))
+            points.append((px, py))
+        for index in range(len(points) - 1):
+            draw.line([points[index], points[index + 1]], fill=0, width=2)
+        for px, py in points:
+            draw.ellipse([px - 2, py - 2, px + 2, py + 2], fill=0)
+
+    chart_tz = datetime.timezone(datetime.timedelta(hours=2))
+    start_dt = datetime.datetime.fromtimestamp(start_ts, tz=chart_tz)
+    end_dt = datetime.datetime.fromtimestamp(end_ts, tz=chart_tz)
+    first_tick_dt = start_dt.replace(minute=0, second=0, microsecond=0)
+    if first_tick_dt < start_dt:
+        first_tick_dt += datetime.timedelta(hours=1)
+
+    tick_dt = first_tick_dt
+    tick_font = _font(12)
+    while tick_dt <= end_dt:
+        tick_ts = int(tick_dt.timestamp())
+        tick_x = x_for(tick_ts)
+        draw.line([tick_x, plot_bottom, tick_x, plot_bottom + 4], fill=0, width=1)
+        label = tick_dt.strftime("%H:00")
+        label_box = draw.textbbox((0, 0), label, font=tick_font, anchor="la")
+        label_half_w = (label_box[2] - label_box[0]) // 2
+        label_x = min(max(tick_x, x0 + label_half_w), x1 - label_half_w)
+        _text(draw, (label_x, y1 - 18), label, 12, anchor="mt")
+        tick_dt += datetime.timedelta(hours=1)
+
+    _text(draw, (x0, y0 + 2), f"{actual_max_mmh:.1f}mm/h", 9)
+    _text(draw, (x1 - 2, y0 + 2), f"{display_max_temp:.0f}°", 9, anchor="ra")
+    _text(draw, (x1 - 2, plot_bottom - 12), f"{display_min_temp:.0f}°", 9, anchor="ra")
+
+
 # ── PNG generation ─────────────────────────────────────────────────────────────
 
 def generate_png(battery_voltage: float | None = None) -> bytes:
     # Fetch data
     ams = weather_store.owm_current(AMS_LAT, AMS_LON, OWM_KEY)
-    fc = weather_store.owm_forecast(AMS_LAT, AMS_LON, OWM_KEY, cnt=16)
-    rain = weather_store.buienradar(AMS_LAT, AMS_LON)
+    rain_forecast = weather_store.get_rain_forecast(AMS_LAT, AMS_LON, hours=12, detailed_hours=3)
+    temp_forecast = weather_store.get_temperature_forecast(
+        AMS_LAT,
+        AMS_LON,
+        start_ts=rain_forecast["start_ts"],
+        hours=12,
+    )
     try:
         daily = weather_store.ams_daily_forecast(AMS_LAT, AMS_LON, days=7)
     except requests.RequestException as exc:
         print(f"[WARN] daily forecast unavailable: {exc}")
         daily = []
-
-    # Build chart series
-    rain_mmh = [r["mmh"] for r in rain]
-    rain_times = [r["time"] for r in rain]
-
-    for slot in fc[1:]:
-        mmh = slot.get("rain", {}).get("3h", 0) / 3.0
-        rain_mmh.append(round(mmh, 2))
-        rain_times.append(slot["dt_txt"][11:16])
-        if len(rain_mmh) >= 40:
-            break
-
-    temp_series = [slot["main"]["temp"] for slot in fc]
-
-    n_points = min(len(rain_mmh), 40)
-    rain_mmh = rain_mmh[:n_points]
-    rain_times = rain_times[:n_points]
-    temp_resampled = []
-    for i in range(n_points):
-        idx = i * (len(temp_series) - 1) / max(n_points - 1, 1)
-        lo = int(idx)
-        hi = min(int(idx) + 1, len(temp_series) - 1)
-        frac = idx - lo
-        temp_resampled.append(temp_series[lo] * (1 - frac) + temp_series[hi] * frac)
 
     tz_ams = datetime.timezone(datetime.timedelta(hours=2))
     now_ams = datetime.datetime.now(tz=tz_ams)
@@ -301,6 +415,7 @@ def generate_png(battery_voltage: float | None = None) -> bytes:
     C2_X = MID_DIV_X + 12
     C3_X = RIGHT_DIV_X + 12
 
+    # Layout frame: column titles, timestamp, and divider lines.
     _text(draw, (C1_X, 10), "Amsterdam", 18, bold=True)
     _text(draw, (C2_X, 10), "Device", 18, bold=True)
     _text(draw, (C3_X, 10), "Amsterdam 7-Day", 16, bold=True)
@@ -325,29 +440,41 @@ def generate_png(battery_voltage: float | None = None) -> bytes:
     today_min = daily[0].get("temp_min") if daily else None
     today_max = daily[0].get("temp_max") if daily else None
 
+    # Left column: current Amsterdam conditions.
     ams_temp_text = f"{ams_temp:.0f}°C"
     _text(draw, (C1_X, 44), ams_temp_text, 46, bold=True)
     ams_temp_bbox = draw.textbbox((C1_X, 44), ams_temp_text,
                                   font=_font(46, True), anchor="la")
+    ams_temp_center_y = (ams_temp_bbox[1] + ams_temp_bbox[3]) / 2
+    ams_icon_size = 34
     ams_icon_x = ams_temp_bbox[2] + 8
-    _draw_weather_icon(draw, ams_icon_x, 52, ams_kind, 34)
-    _text(draw, (ams_icon_x + 36, 62), now_ams.strftime("%A %B %-d"), 10)
+    ams_icon_y = int(ams_temp_center_y - ams_icon_size * 0.8)
+    ams_date_y = int(ams_temp_center_y - 5)
+    _draw_weather_icon(draw, ams_icon_x, ams_icon_y, ams_kind, ams_icon_size)
+    _text(draw, (ams_icon_x + 36, ams_date_y), now_ams.strftime("%A %B %-d"), 10)
+    left_detail_y = 96
+    left_detail_step = 16
     if today_min is not None and today_max is not None:
-        _text(draw, (C1_X, 196),
+        _text(draw, (C1_X, left_detail_y),
               f"Min {today_min:.0f}°C  Max {today_max:.0f}°C", 12)
     else:
-        _text(draw, (C1_X, 196), "Min --  Max --", 12)
-    _text(draw, (C1_X, 130), f"Feels  {ams_feel:.0f}°C", 13)
+        _text(draw, (C1_X, left_detail_y), "Min --  Max --", 12)
+    _text(draw, (C1_X, left_detail_y + left_detail_step), f"Feels  {ams_feel:.0f}°C", 13)
     if today_rain_prob is not None:
-        _text(draw, (C1_X, 114), f"Rain probability  {today_rain_prob}%", 13)
+        _text(draw, (C1_X, left_detail_y + left_detail_step * 2),
+              f"Rain probability  {today_rain_prob}%", 13)
     else:
-        _text(draw, (C1_X, 114), "Rain probability  --", 13)
-    _text(draw, (C1_X, 96), ams_desc, 13)
+        _text(draw, (C1_X, left_detail_y + left_detail_step * 2),
+              "Rain probability  --", 13)
+    _text(draw, (C1_X, left_detail_y + left_detail_step * 3), ams_desc, 13)
 
-    _text(draw, (C1_X, 146), f"Humidity  {ams_hum}%", 13)
-    _text(draw, (C1_X, 162), f"Wind  {ams_wind:.0f} m/s {ams_wdir}", 13)
-    _text(draw, (C1_X, 178), f"Gusts  {ams_gust:.0f} m/s", 13)
+    _text(draw, (C1_X, left_detail_y + left_detail_step * 4), f"Humidity  {ams_hum}%", 13)
+    _text(draw, (C1_X, left_detail_y + left_detail_step * 5),
+          f"Wind  {ams_wind:.0f} m/s {ams_wdir}", 13)
+    _text(draw, (C1_X, left_detail_y + left_detail_step * 6),
+          f"Gusts  {ams_gust:.0f} m/s", 13)
 
+    # Middle column: indoor/device sensor readings.
     if indoor["temp"] is not None:
         _text(draw, (C2_X, 44), f"{indoor['temp']:.1f}°C", 46, bold=True)
         _text(draw, (C2_X, 96), f"Humidity  {indoor['humidity']:.0f}%", 13)
@@ -367,12 +494,19 @@ def generate_png(battery_voltage: float | None = None) -> bytes:
             batt_pct = max(0, min(100, int((battery_voltage - 3.3) / (4.2 - 3.3) * 100)))
             _text(draw, (C2_X, 114), f"Battery  {batt_pct}%  ({battery_voltage:.2f} V)", 13)
 
+    # Right column: 7-day Amsterdam forecast.
     _draw_daily_forecast(draw, (C3_X, 44, WIDTH - 16, HEIGHT - 42), daily)
 
-    _text(draw, (16, CHART_TOP_Y - 12), "Rain (mm/h)  +  Temperature (°C)", 11)
-    _draw_bar_chart(draw, (16, CHART_TOP_Y, RIGHT_DIV_X - 16, HEIGHT - 30),
-                    rain_mmh, temp_resampled, rain_times)
+    # Bottom-left panel: rain bars and temperature line chart.
+    _text(draw, (16, CHART_TOP_Y - 12), "Rain next 12h (5m now, hourly later) + Temperature", 11)
+    _draw_proportional_chart(
+        draw,
+        (16, CHART_TOP_Y, RIGHT_DIV_X - 16, HEIGHT - 30),
+        rain_forecast,
+        temp_forecast,
+    )
 
+    # Footer: cached source freshness summary.
     draw.line([16, HEIGHT - 28, WIDTH - 16, HEIGHT - 28], fill=180, width=1)
     _text(draw, (16, HEIGHT - 22), footer_sources, 10)
 

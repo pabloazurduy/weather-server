@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import datetime
 import json
 import sqlite3
 import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import requests
 
 DEFAULT_DB_PATH = Path(__file__).with_name("weather_cache.sqlite3")
+AMSTERDAM_TZ = ZoneInfo("Europe/Amsterdam")
 
 
 @dataclass(frozen=True)
@@ -35,6 +38,11 @@ DEFAULT_ENDPOINT_POLICIES = {
         source="Open-Meteo",
         ttl=12 * 60 * 60,
         table_name="openmeteo_daily_ams",
+    ),
+    "openmeteo_hourly_ams": EndpointPolicy(
+        source="Open-Meteo",
+        ttl=60 * 60,
+        table_name="openmeteo_hourly_ams",
     ),
     "buienradar_rain_ams": EndpointPolicy(
         source="Buienradar",
@@ -364,6 +372,10 @@ class WeatherStore:
                 "openmeteo_daily_ams",
                 lambda: self.ams_daily_forecast(lat, lon, days=daily_days, force=force),
             ),
+            (
+                "openmeteo_hourly_ams",
+                lambda: self.ams_hourly_forecast(lat, lon, hours=24, force=force),
+            ),
             ("buienradar_rain_ams", lambda: self.buienradar(lat, lon, force=force)),
         ]
         sources = {}
@@ -481,6 +493,47 @@ class WeatherStore:
 
         return self.fetch_with_history("openmeteo_daily_ams", fetch, force=force)
 
+    def ams_hourly_forecast(
+        self,
+        lat: float,
+        lon: float,
+        hours: int = 24,
+        force: bool = False,
+    ) -> list:
+        def fetch():
+            url = (
+                "https://api.open-meteo.com/v1/forecast"
+                f"?latitude={lat}&longitude={lon}"
+                "&hourly=temperature_2m,precipitation"
+                "&timezone=Europe%2FAmsterdam"
+                "&forecast_days=2"
+            )
+            response = requests.get(url, timeout=6)
+            response.raise_for_status()
+            hourly = response.json()["hourly"]
+            out = []
+            for index, timestamp in enumerate(hourly["time"]):
+                out.append(
+                    {
+                        "ts": self._parse_local_hourly_timestamp(timestamp),
+                        "temp_c": float(hourly["temperature_2m"][index]),
+                        "rain_mmh": float(hourly["precipitation"][index] or 0.0),
+                    }
+                )
+            now_ts = int(self._amsterdam_now().timestamp())
+            window_start_ts = now_ts - 3600
+            window_end_ts = now_ts + max(hours + 3, 12) * 3600
+            filtered = [
+                point
+                for point in out
+                if window_start_ts <= point["ts"] <= window_end_ts
+            ]
+            if filtered:
+                return filtered
+            return out[-max(hours + 6, 12):]
+
+        return self.fetch_with_history("openmeteo_hourly_ams", fetch, force=force)
+
     def buienradar(
         self,
         lat: float,
@@ -502,6 +555,170 @@ class WeatherStore:
             return out
 
         return self.fetch_with_history("buienradar_rain_ams", fetch, force=force)
+
+    def get_rain_forecast(
+        self,
+        lat: float,
+        lon: float,
+        hours: int = 12,
+        detailed_hours: int = 3,
+        force: bool = False,
+    ) -> dict:
+        buienradar_points = self._buienradar_points_with_timestamps(
+            self.buienradar(lat, lon, force=force)
+        )
+        hourly_forecast = self.ams_hourly_forecast(lat, lon, hours=hours + 6, force=force)
+
+        start_ts = (
+            buienradar_points[0]["ts"]
+            if buienradar_points
+            else self._round_ts_to_5_minutes(int(self._amsterdam_now().timestamp()))
+        )
+        end_ts = start_ts + hours * 3600
+        desired_detail_end_ts = start_ts + detailed_hours * 3600
+        available_detail_end_ts = start_ts
+        if buienradar_points:
+            available_detail_end_ts = min(
+                desired_detail_end_ts,
+                buienradar_points[-1]["ts"] + 5 * 60,
+            )
+        detailed_end_ts = min(available_detail_end_ts, end_ts)
+
+        lookup = {point["ts"]: float(point.get("mmh", 0.0)) for point in buienradar_points}
+        points = []
+        slot_ts = start_ts
+        while slot_ts < end_ts:
+            if slot_ts < detailed_end_ts:
+                points.append(
+                    {
+                        "ts": slot_ts,
+                        "mmh": lookup.get(slot_ts, 0.0),
+                        "group_start_ts": slot_ts,
+                        "duration_minutes": 5,
+                        "source": "Buienradar",
+                    }
+                )
+            else:
+                coarse_index = int((slot_ts - detailed_end_ts) // 3600)
+                group_start_ts = detailed_end_ts + coarse_index * 3600
+                points.append(
+                    {
+                        "ts": slot_ts,
+                        "mmh": self._hourly_step_value(
+                            hourly_forecast,
+                            group_start_ts,
+                            "rain_mmh",
+                        ),
+                        "group_start_ts": group_start_ts,
+                        "duration_minutes": 60,
+                        "source": "Open-Meteo",
+                    }
+                )
+            slot_ts += 5 * 60
+
+        return {
+            "start_ts": start_ts,
+            "end_ts": end_ts,
+            "detailed_end_ts": detailed_end_ts,
+            "points": points,
+        }
+
+    def get_temperature_forecast(
+        self,
+        lat: float,
+        lon: float,
+        start_ts: int,
+        hours: int = 12,
+        force: bool = False,
+    ) -> list:
+        hourly_forecast = self.ams_hourly_forecast(lat, lon, hours=hours + 6, force=force)
+        points = []
+        for offset in range(hours + 1):
+            point_ts = start_ts + offset * 3600
+            points.append(
+                {
+                    "ts": point_ts,
+                    "temp_c": self._interpolate_hourly_value(
+                        hourly_forecast,
+                        point_ts,
+                        "temp_c",
+                    ),
+                }
+            )
+        return points
+
+    @staticmethod
+    def _amsterdam_now() -> datetime.datetime:
+        return datetime.datetime.now(tz=AMSTERDAM_TZ)
+
+    @staticmethod
+    def _round_ts_to_5_minutes(timestamp: int) -> int:
+        return timestamp - (timestamp % (5 * 60))
+
+    @staticmethod
+    def _parse_local_hourly_timestamp(value: str) -> int:
+        dt = datetime.datetime.fromisoformat(value)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=AMSTERDAM_TZ)
+        return int(dt.timestamp())
+
+    @classmethod
+    def _buienradar_points_with_timestamps(
+        cls,
+        points: list[dict],
+        now: datetime.datetime | None = None,
+    ) -> list[dict]:
+        if now is None:
+            now = cls._amsterdam_now()
+
+        out = []
+        previous_dt: datetime.datetime | None = None
+        for point in points:
+            hour, minute = map(int, point["time"].split(":"))
+            candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            if candidate > now + datetime.timedelta(hours=12):
+                candidate -= datetime.timedelta(days=1)
+            if candidate < now - datetime.timedelta(hours=1):
+                candidate += datetime.timedelta(days=1)
+            if previous_dt is not None:
+                while candidate <= previous_dt:
+                    candidate += datetime.timedelta(days=1)
+            out.append({**point, "ts": int(candidate.timestamp())})
+            previous_dt = candidate
+        return out
+
+    @staticmethod
+    def _hourly_step_value(series: list[dict], timestamp: int, field: str) -> float:
+        if not series:
+            return 0.0
+
+        chosen = series[0]
+        for point in series:
+            if point["ts"] <= timestamp:
+                chosen = point
+            else:
+                break
+        return float(chosen[field])
+
+    @staticmethod
+    def _interpolate_hourly_value(series: list[dict], timestamp: int, field: str) -> float:
+        if not series:
+            return 0.0
+        if timestamp <= series[0]["ts"]:
+            return float(series[0][field])
+        if timestamp >= series[-1]["ts"]:
+            return float(series[-1][field])
+
+        previous = series[0]
+        for current in series[1:]:
+            if timestamp <= current["ts"]:
+                span = current["ts"] - previous["ts"]
+                if span <= 0:
+                    return float(current[field])
+                fraction = (timestamp - previous["ts"]) / span
+                return float(previous[field]) * (1 - fraction) + float(current[field]) * fraction
+            previous = current
+        return float(series[-1][field])
 
     @staticmethod
     def _weather_kind_from_code(code: int) -> str:

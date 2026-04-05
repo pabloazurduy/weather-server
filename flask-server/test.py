@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import datetime
 import json
 import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
 
+import models
 from models import EndpointPolicy, WeatherStore
 
 
@@ -25,6 +27,11 @@ TEST_ENDPOINT_POLICIES = {
         source="Device sensor",
         ttl=None,
         table_name="device_sensor",
+    ),
+    "openmeteo_hourly_ams": EndpointPolicy(
+        source="Open-Meteo",
+        ttl=900,
+        table_name="openmeteo_hourly_ams",
     ),
 }
 
@@ -153,6 +160,94 @@ class WeatherStoreTests(unittest.TestCase):
         self.assertEqual(latest["payload"], {"migrated": True})
         self.assertEqual(latest["fetched_at"], 1234)
         self.assertNotIn("source_history", tables)
+
+    def test_get_rain_forecast_keeps_5_min_detail_then_switches_to_hour_groups(self):
+        self.store.buienradar = lambda lat, lon, force=False: [
+            {"time": "10:00", "mmh": 0.0},
+            {"time": "10:05", "mmh": 0.2},
+            {"time": "10:10", "mmh": 0.4},
+            {"time": "10:15", "mmh": 0.0},
+        ]
+        self.store.ams_hourly_forecast = lambda lat, lon, hours=18, force=False: [
+            {"ts": 1_710_000_000, "temp_c": 8.0, "rain_mmh": 0.5},
+            {"ts": 1_710_003_600, "temp_c": 9.0, "rain_mmh": 1.0},
+            {"ts": 1_710_007_200, "temp_c": 10.0, "rain_mmh": 0.0},
+        ]
+        self.store._buienradar_points_with_timestamps = lambda points, now=None: [
+            {"ts": 1_710_000_000, "mmh": 0.0},
+            {"ts": 1_710_000_300, "mmh": 0.2},
+            {"ts": 1_710_000_600, "mmh": 0.4},
+            {"ts": 1_710_000_900, "mmh": 0.0},
+        ]
+
+        forecast = self.store.get_rain_forecast(12.34, 56.78, hours=2, detailed_hours=1)
+
+        self.assertEqual(forecast["start_ts"], 1_710_000_000)
+        self.assertEqual(forecast["end_ts"], 1_710_007_200)
+        self.assertEqual(forecast["points"][0]["duration_minutes"], 5)
+        self.assertEqual(forecast["points"][1]["duration_minutes"], 5)
+        coarse_point = next(point for point in forecast["points"] if point["ts"] >= forecast["detailed_end_ts"])
+        self.assertEqual(coarse_point["duration_minutes"], 60)
+        self.assertEqual(coarse_point["group_start_ts"], forecast["detailed_end_ts"])
+
+    def test_ams_hourly_forecast_filters_around_current_time(self):
+        fixed_now = datetime.datetime(2026, 1, 1, 23, 35, tzinfo=models.AMSTERDAM_TZ)
+        self.store._amsterdam_now = lambda: fixed_now
+
+        hourly_times = []
+        temperatures = []
+        precipitation = []
+        start = datetime.datetime(2026, 1, 1, 0, 0)
+        for hour in range(48):
+            point = start + datetime.timedelta(hours=hour)
+            hourly_times.append(point.strftime("%Y-%m-%dT%H:%M"))
+            temperatures.append(float(hour))
+            precipitation.append(float(hour % 3))
+
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "hourly": {
+                        "time": hourly_times,
+                        "temperature_2m": temperatures,
+                        "precipitation": precipitation,
+                    }
+                }
+
+        original_get = models.requests.get
+        models.requests.get = lambda url, timeout=6: FakeResponse()
+        self.addCleanup(lambda: setattr(models.requests, "get", original_get))
+
+        forecast = self.store.ams_hourly_forecast(12.34, 56.78, hours=12, force=True)
+
+        self.assertTrue(forecast)
+        self.assertLessEqual(forecast[0]["ts"], int(fixed_now.timestamp()))
+        self.assertGreaterEqual(
+            forecast[-1]["ts"],
+            int((fixed_now + datetime.timedelta(hours=12)).timestamp()),
+        )
+        self.assertGreater(forecast[-1]["temp_c"], forecast[0]["temp_c"])
+
+    def test_get_rain_forecast_uses_hourly_data_when_buienradar_missing(self):
+        self.store.buienradar = lambda lat, lon, force=False: []
+        self.store.ams_hourly_forecast = lambda lat, lon, hours=18, force=False: [
+            {"ts": 1_710_000_000, "temp_c": 8.0, "rain_mmh": 0.5},
+            {"ts": 1_710_003_600, "temp_c": 9.0, "rain_mmh": 1.0},
+            {"ts": 1_710_007_200, "temp_c": 10.0, "rain_mmh": 0.0},
+        ]
+        self.store._amsterdam_now = lambda: datetime.datetime.fromtimestamp(
+            1_710_000_000,
+            tz=models.AMSTERDAM_TZ,
+        )
+
+        forecast = self.store.get_rain_forecast(12.34, 56.78, hours=2, detailed_hours=1)
+
+        self.assertEqual(forecast["detailed_end_ts"], forecast["start_ts"])
+        self.assertEqual(forecast["points"][0]["duration_minutes"], 60)
+        self.assertEqual(forecast["points"][0]["source"], "Open-Meteo")
 
 
 if __name__ == "__main__":
