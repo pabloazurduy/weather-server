@@ -1,17 +1,15 @@
-.env
-.env.*
-!.env.example
-.DS_Store
-.venv/
-__pycache__/
+.git
+.github
+.venv
+__pycache__
+**/__pycache__
 *.pyc
+.DS_Store
 
-# Local server config and data
+# Local-only secrets and data
+arduino/weather_display/secrets.h
 flask-server/local_settings.py
 flask-server/weather_cache.sqlite3
 flask-server/weather_cache.sqlite3-*
 weather_cache.sqlite3
 weather_cache.sqlite3-*
-
-# Local Arduino secrets
-arduino/weather_display/secrets.h
