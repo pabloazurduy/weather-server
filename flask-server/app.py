@@ -192,6 +192,9 @@ def _draw_daily_forecast(draw: ImageDraw.ImageDraw, rect, daily: list):
     temp_ceiling = math.ceil(max(day["temp_max"] for day in daily) + 1)
     temp_span = max(temp_ceiling - temp_floor, 1)
     row_h = (y1 - y0) // len(daily)
+    prob_font = _font(13, bold=True)
+    min_temp_font = _font(13)
+    icon_size = 26
 
     for idx, day in enumerate(daily):
         row_y = y0 + idx * row_h
@@ -199,18 +202,28 @@ def _draw_daily_forecast(draw: ImageDraw.ImageDraw, rect, daily: list):
         date_obj = datetime.date.fromisoformat(day["date"])
         label = date_obj.strftime("%a %-d")
         prob_x = x0 + 60
-        icon_x = x0 + 100
 
         if idx > 0:
             draw.line([x0, row_y, x1, row_y], fill=220, width=1)
 
         _text(draw, (x0, row_mid), label, 14, bold=True, anchor="lm")
+        rain_prob_text = None
+        prob_right = prob_x + 18
         if day.get("rain_prob") is not None:
-            _text(draw, (prob_x, row_mid), f"{day['rain_prob']}%", 13, bold=True, anchor="lm")
-        _draw_weather_icon(draw, icon_x, row_mid - 20, day["kind"], 26)
+            rain_prob_text = f"{day['rain_prob']}%"
+            _text(draw, (prob_x, row_mid), rain_prob_text, 13, bold=True, anchor="lm")
+            prob_box = draw.textbbox((prob_x, row_mid), rain_prob_text, font=prob_font, anchor="lm")
+            prob_right = prob_box[2]
 
         bar_x0 = x0 + 148
         bar_x1 = x1 - 38
+        min_temp_text = f"{day['temp_min']:.0f}°"
+        min_temp_x = bar_x0 - 8
+        draw.textbbox((min_temp_x, row_mid), min_temp_text, font=min_temp_font, anchor="rm")
+        icon_center_x = int((prob_right + min_temp_x) / 2) - 4
+        icon_x = icon_center_x - icon_size // 2
+        _draw_weather_icon(draw, icon_x, row_mid - 20, day["kind"], icon_size)
+
         draw.line([bar_x0, row_mid, bar_x1, row_mid], fill=180, width=7)
 
         seg_x0 = bar_x0 + int(((day["temp_min"] - temp_floor) / temp_span) * (bar_x1 - bar_x0))
@@ -219,7 +232,7 @@ def _draw_daily_forecast(draw: ImageDraw.ImageDraw, rect, daily: list):
         draw.rounded_rectangle([seg_x0, row_mid - 6, seg_x1, row_mid + 6],
                                radius=6, fill=0)
 
-        _text(draw, (bar_x0 - 8, row_mid), f"{day['temp_min']:.0f}°", 13, anchor="rm")
+        _text(draw, (min_temp_x, row_mid), min_temp_text, 13, anchor="rm")
         _text(draw, (x1, row_mid), f"{day['temp_max']:.0f}°", 13, anchor="rm")
 
 
