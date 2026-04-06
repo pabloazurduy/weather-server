@@ -308,6 +308,35 @@ def _weather_icon_text(draw: ImageDraw.ImageDraw, xy, text: str, size: int,
     draw.text(xy, text, font=_weather_icon_font(size), fill=0, anchor=anchor)
 
 
+def _truncate_text_to_width(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+    max_width: int,
+) -> str:
+    if max_width <= 0:
+        return ""
+
+    full_box = draw.textbbox((0, 0), text, font=font, anchor="la")
+    if full_box[2] - full_box[0] <= max_width:
+        return text
+
+    ellipsis = "..."
+    ellipsis_box = draw.textbbox((0, 0), ellipsis, font=font, anchor="la")
+    if ellipsis_box[2] - ellipsis_box[0] > max_width:
+        return ""
+
+    trimmed = text
+    while trimmed:
+        trimmed = trimmed[:-1]
+        candidate = trimmed.rstrip() + ellipsis
+        candidate_box = draw.textbbox((0, 0), candidate, font=font, anchor="la")
+        if candidate_box[2] - candidate_box[0] <= max_width:
+            return candidate
+
+    return ellipsis
+
+
 def _draw_weather_icon(draw: ImageDraw.ImageDraw, x: float, y: float,
                        kind: str, size: int = 24):
     if _has_weather_icon_font():
@@ -732,9 +761,17 @@ def generate_png(battery_voltage: float | None = None) -> bytes:
         chart_tz=location_tz,
     )
 
-    # Footer: cached source freshness summary.
+    # Footer: cached source freshness summary on the left and server URL on the right.
     draw.line([16, HEIGHT - 28, WIDTH - 16, HEIGHT - 28], fill=180, width=1)
-    _text(draw, (16, HEIGHT - 22), footer_sources, 10)
+    footer_font = _font(10)
+    footer_url = BASE_URL.rstrip("/")
+    footer_url_box = draw.textbbox((WIDTH - 16, HEIGHT - 22), footer_url, font=footer_font, anchor="ra")
+    footer_gap = 12
+    footer_sources_max_width = int(footer_url_box[0] - 16 - footer_gap)
+    footer_sources_text = _truncate_text_to_width(draw, footer_sources, footer_font, footer_sources_max_width)
+    if footer_sources_text:
+        draw.text((16, HEIGHT - 22), footer_sources_text, font=footer_font, fill=0, anchor="la")
+    draw.text((WIDTH - 16, HEIGHT - 22), footer_url, font=footer_font, fill=0, anchor="ra")
 
     img = img.convert("1").convert("L")
 

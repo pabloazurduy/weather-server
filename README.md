@@ -56,6 +56,52 @@ The rendered dashboard now uses Open-Meteo for current conditions, daily min/max
 
 The weather cache is stored in `flask-server/weather_cache.sqlite3`. Weather-source history is partitioned by normalized city so one database can keep cached data for multiple locations.
 
+## Mascot selection logic
+
+The hedgehog in the center panel is picked by a small fixed rule cascade in `flask-server/app.py`.
+
+Meaning of the rule words:
+
+```python
+freezing = (temp_min <= freezing_temp_c)            # 2.0 C by default
+windy = (current_wind_mps >= windy_speed_mps)       # 10.0 m/s by default
+warm = (temp_max >= warm_temp_c)                    # 16.0 C by default
+cold = (temp_max < warm_temp_c)                     # below 16.0 C by default
+rain_probability_high = (rain_prob >= rain_prob_percent)  # 35 by default
+```
+
+Compact view of the logic:
+
+```text
+if forecast_kind in snowy_kinds:
+   snow
+elif temp_min <= freezing_temp_c and current_wind_mps >= windy_speed_mps and forecast_kind not in rainy_kinds:
+   freezing_windy
+else:
+   temp_variant = "warm" if temp_max >= warm_temp_c else "cold"
+
+   if forecast_kind in rainy_kinds or rain_prob >= rain_prob_percent:
+      rainy_<temp_variant>
+   elif forecast_kind in sunny_kinds:
+      sunny_<temp_variant>
+   else:
+      cloudy_<temp_variant>
+```
+
+These thresholds are configurable in `config.py` and can be overridden by `local_settings.py` or environment variables.
+
+```python
+CHARACTER_RULES = _structured_setting(
+    "CHARACTER_RULES",
+    {
+      "warm_temp_c": 16.0, # above this is considered warm, below is cold
+      "freezing_temp_c": 2.0, # at or below this is considered freezing for the purpose of the freezing_windy rule
+      "windy_speed_mps": 10.0, # at or above this is considered windy for the purpose of the freezing_windy rule
+      "rain_prob_percent": 35, # at or above this is considered high rain probability for the rainy rule
+    },
+)
+```
+
 Container publishing:
 
 - Pushes to `main` build the root `Dockerfile` and publish `ghcr.io/pabloazurduy/weather-server` through GitHub Actions.
