@@ -20,6 +20,7 @@ import threading
 import time
 from functools import lru_cache
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
 
@@ -219,15 +220,22 @@ TEXT_FONT_PATHS = {
         "/System/Library/Fonts/SFNSDisplay.ttf",
         "/System/Library/Fonts/Helvetica.ttc",
         "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "/usr/share/fonts/liberation/LiberationSans-Regular.ttf",
         "/usr/share/fonts/dejavu/DejaVuSans.ttf",
     ),
     True: (
         "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
         "/System/Library/Fonts/Helvetica.ttc",
+        "/usr/share/fonts/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/liberation/LiberationSans-Regular.ttf",
         "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/dejavu/DejaVuSans.ttf",
     ),
 }
+
+WEATHER_ICON_FONT_PATHS = (
+    "/usr/share/fonts/weathericons/weathericons-regular-webfont.ttf",
+)
 
 ICON_FONT_PATHS = (
     "/System/Library/Fonts/Apple Symbols.ttf",
@@ -236,6 +244,18 @@ ICON_FONT_PATHS = (
     "/usr/share/fonts/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/noto/NotoColorEmoji.ttf",
 )
+
+WEATHER_ICON_GLYPHS = {
+    "sun": "\uf00d",
+    "moon": "\uf02e",
+    "partly": "\uf002",
+    "partly-night": "\uf081",
+    "cloud": "\uf041",
+    "fog": "\uf014",
+    "rain": "\uf019",
+    "snow": "\uf01b",
+    "storm": "\uf01e",
+}
 
 
 @lru_cache(maxsize=None)
@@ -256,6 +276,14 @@ def _icon_font(size: int):
     return _load_cached_font(ICON_FONT_PATHS, size)
 
 
+def _weather_icon_font(size: int):
+    return _load_cached_font(WEATHER_ICON_FONT_PATHS, size)
+
+
+def _has_weather_icon_font() -> bool:
+    return any(Path(path).exists() for path in WEATHER_ICON_FONT_PATHS)
+
+
 # ── Drawing helpers ────────────────────────────────────────────────────────────
 
 def _text(draw: ImageDraw.ImageDraw, xy, text: str, size: int,
@@ -268,8 +296,19 @@ def _icon_text(draw: ImageDraw.ImageDraw, xy, text: str, size: int,
     draw.text(xy, text, font=_icon_font(size), fill=0, anchor=anchor)
 
 
+def _weather_icon_text(draw: ImageDraw.ImageDraw, xy, text: str, size: int,
+                       anchor: str = "la"):
+    draw.text(xy, text, font=_weather_icon_font(size), fill=0, anchor=anchor)
+
+
 def _draw_weather_icon(draw: ImageDraw.ImageDraw, x: float, y: float,
                        kind: str, size: int = 24):
+    if _has_weather_icon_font():
+        glyph = WEATHER_ICON_GLYPHS.get(kind)
+        if glyph is not None:
+            _weather_icon_text(draw, (x, y - int(round(size * 0.04))), glyph, int(size * 0.95))
+            return
+
     if kind in {"partly", "partly-night", "cloud", "fog", "rain", "snow", "storm"}:
         y -= int(round(size * 0.35))
 
@@ -345,7 +384,7 @@ def _draw_daily_forecast(draw: ImageDraw.ImageDraw, rect, daily: list):
         if idx > 0:
             draw.line([x0, row_y, x1, row_y], fill=220, width=1)
 
-        _text(draw, (x0, row_mid), label, 14, bold=True, anchor="lm")
+        _text(draw, (x0, row_mid), label, 14, anchor="lm")
         rain_prob_text = None
         prob_right = prob_x + 18
         if day.get("rain_prob") is not None:
@@ -579,10 +618,10 @@ def generate_png(battery_voltage: float | None = None) -> bytes:
 
     # Layout frame: column titles, timestamp, and divider lines.
     title_y = 10
-    _text(draw, (C1_X, title_y), city_name, 18, bold=True)
+    _text(draw, (C1_X, title_y), city_name, 18)
     city_title_box = draw.textbbox((C1_X, title_y), city_name,
-                                   font=_font(18, True), anchor="la")
-    _text(draw, (C3_X, 10), f"{city_name} 7-Day", 16, bold=True)
+                                   font=_font(18), anchor="la")
+    _text(draw, (C3_X, 10), f"{city_name} 7-Day", 16)
     _text(draw, (WIDTH - 16, 10),
             now_local.strftime("%b %-d  %-I:%M %p"), 13, anchor="ra")
 
