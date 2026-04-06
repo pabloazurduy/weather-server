@@ -5,7 +5,7 @@
 
 Weather dashboard project for an e-ink display. The repo contains a Python server that renders weather images and an Arduino sketch for the display device that downloads and shows them.
 
-<table><tr><td><img src="example-edisplay.JPG" height="250" /></td><td><img src="example_dashboard.png" height="250" /></td></tr></table>
+<table><tr><td><img src="example-edisplay.JPG" height="290" /></td><td><img src="example_dashboard.png" height="290" /></td></tr></table>
 
 
 
