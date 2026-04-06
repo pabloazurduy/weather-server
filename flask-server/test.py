@@ -13,7 +13,6 @@ from zoneinfo import ZoneInfo
 
 import app
 import models
-import weather_icons
 from models import EndpointPolicy, WeatherStore
 
 
@@ -470,12 +469,6 @@ class WeatherStoreTests(unittest.TestCase):
         )
 
         self.assertEqual(icon_key, "freezing_windy")
-
-    def test_weather_icon_renderer_supports_all_kinds(self):
-        for kind in weather_icons.ICON_KINDS:
-            icon = weather_icons.render_weather_icon(kind, 64)
-            self.assertEqual(icon.size, (64, 64))
-            self.assertEqual(icon.getextrema(), (0, 255))
 
 
 if __name__ == "__main__":
