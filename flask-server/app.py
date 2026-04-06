@@ -18,6 +18,7 @@ import json
 import math
 import threading
 import time
+from functools import lru_cache
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
@@ -42,6 +43,7 @@ from config import (
     WIDTH,
 )
 from models import WeatherStore
+from weather_icons import render_weather_icon
 
 weather_store = WeatherStore(DB_PATH, default_city=CITY)
 
@@ -49,6 +51,7 @@ weather_store = WeatherStore(DB_PATH, default_city=CITY)
 _cache: dict = {"png": None, "ts": 0}
 _cache_lock = threading.Lock()
 CACHE_TTL = 300  # regenerate image every 5 min
+WEATHER_ICON_ROOT = CHARACTER_ASSET_ROOT / "weather-icons"
 
 # Latest in-process sensor values; the persistent source of truth is SQLite.
 _indoor: dict = {"temp": None, "humidity": None, "battery_voltage": None, "ts": None}
@@ -131,7 +134,7 @@ def _draw_character_panel(
     icon_key = _character_icon_key(today_forecast, current_kind, current_wind_mps)
     icon = _load_character_icon(icon_key)
     panel_label = _character_icon_label(icon_key)
-    _draw_weather_icon(draw, x0 + 8, y0 + 2, current_kind, 20)
+    _draw_weather_icon(img, x0 + 8, y0 + 2, current_kind, 20)
     _text(draw, (x0 + 36, y0 + 12), panel_label, 13)
 
     if icon is None:
@@ -215,8 +218,10 @@ def _location_timezone(timezone_name: str | None) -> datetime.tzinfo:
 
 def _font(size: int, bold: bool = False):
     faces = [
-        "/System/Library/Fonts/Helvetica.ttc",
-        "/System/Library/Fonts/SFNSDisplay.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/TTF/DejaVuSans.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Bold.ttf" if bold else "/System/Library/Fonts/Helvetica.ttc",
         "/System/Library/Fonts/Supplemental/Arial.ttf",
     ]
     for path in faces:
@@ -227,18 +232,17 @@ def _font(size: int, bold: bool = False):
     return ImageFont.load_default()
 
 
-def _icon_font(size: int):
-    faces = [
-        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
-        "/System/Library/Fonts/Apple Symbols.ttf",
-        "/System/Library/Fonts/Supplemental/Arial.ttf",
-    ]
-    for path in faces:
-        try:
-            return ImageFont.truetype(path, size)
-        except (IOError, OSError):
-            continue
-    return ImageFont.load_default()
+@lru_cache(maxsize=None)
+def _load_weather_icon(kind: str, size: int) -> Image.Image:
+    icon_path = WEATHER_ICON_ROOT / f"{kind}.png"
+    if icon_path.exists():
+        with Image.open(icon_path) as image:
+            icon = image.convert("L")
+    else:
+        icon = render_weather_icon(kind, max(96, size * 4))
+    if icon.size != (size, size):
+        icon = icon.resize((size, size), Image.Resampling.LANCZOS)
+    return icon
 
 
 # ── Drawing helpers ────────────────────────────────────────────────────────────
@@ -248,64 +252,13 @@ def _text(draw: ImageDraw.ImageDraw, xy, text: str, size: int,
     draw.text(xy, text, font=_font(size, bold), fill=0, anchor=anchor)
 
 
-def _icon_text(draw: ImageDraw.ImageDraw, xy, text: str, size: int,
-               anchor: str = "la"):
-    draw.text(xy, text, font=_icon_font(size), fill=0, anchor=anchor)
-
-
-def _draw_weather_icon(draw: ImageDraw.ImageDraw, x: float, y: float,
+def _draw_weather_icon(img: Image.Image, x: float, y: float,
                        kind: str, size: int = 24):
-    if kind in {"partly", "partly-night", "cloud", "fog", "rain", "snow", "storm"}:
-        y -= int(round(size * 0.35))
-
-    if kind == "sun":
-        _icon_text(draw, (x, y), "☀", int(size * 0.95))
-        return
-
-    if kind == "moon":
-        _icon_text(draw, (x, y), "☾", int(size * 0.95))
-        return
-
-    if kind == "partly":
-        _icon_text(draw, (x, y - 2), "☀", int(size * 0.8))
-        _icon_text(draw, (x + size // 4, y + size // 6), "☁", int(size * 0.9))
-        return
-
-    if kind == "partly-night":
-        _icon_text(draw, (x, y - 2), "☾", int(size * 0.8))
-        _icon_text(draw, (x + size // 4, y + size // 6), "☁", int(size * 0.9))
-        return
-
-    if kind == "cloud":
-        _icon_text(draw, (x, y + size // 10), "☁", int(size * 0.95))
-        return
-
-    if kind == "fog":
-        _icon_text(draw, (x + 1, y + size // 12), "☁", int(size * 0.88))
-        for row in (y + size - 6, y + size - 2):
-            draw.line([x + 4, row, x + size + 4, row], fill=0, width=1)
-        return
-
-    _icon_text(draw, (x, y + size // 10), "☁", int(size * 0.95))
-
-    if kind == "rain":
-        rain_top = y + size + 1
-        rain_bottom = y + size + 8
-        for offset in (6, 12, 18):
-            draw.line([x + offset, rain_top, x + offset - 2, rain_bottom],
-                      fill=0, width=2)
-    elif kind == "snow":
-        _icon_text(draw, (x + size // 3, y + size // 2), "❄", int(size * 0.55))
-    elif kind == "storm":
-        draw.line([
-            x + 12, y + size - 8,
-            x + 8, y + size - 1,
-            x + 13, y + size - 1,
-            x + 10, y + size + 5,
-        ], fill=0, width=2)
+    icon = _load_weather_icon(kind, size)
+    img.paste(icon, (int(round(x)), int(round(y))))
 
 
-def _draw_daily_forecast(draw: ImageDraw.ImageDraw, rect, daily: list):
+def _draw_daily_forecast(img: Image.Image, draw: ImageDraw.ImageDraw, rect, daily: list):
     x0, y0, x1, y1 = rect
     if not daily:
         _text(draw, (x0, y0 + 16), "7-day forecast", 15, bold=True)
@@ -346,7 +299,7 @@ def _draw_daily_forecast(draw: ImageDraw.ImageDraw, rect, daily: list):
         draw.textbbox((min_temp_x, row_mid), min_temp_text, font=min_temp_font, anchor="rm")
         icon_center_x = int((prob_right + min_temp_x) / 2) - 4
         icon_x = icon_center_x - icon_size // 2
-        _draw_weather_icon(draw, icon_x, row_mid - 20, day["kind"], icon_size)
+        _draw_weather_icon(img, icon_x, row_mid - 14, day["kind"], icon_size)
 
         draw.line([bar_x0, row_mid, bar_x1, row_mid], fill=180, width=7)
 
@@ -590,7 +543,7 @@ def generate_png(battery_voltage: float | None = None) -> bytes:
     )
     header_icon_size = 20
     header_icon_x = city_title_box[2] + 8
-    _draw_weather_icon(draw, header_icon_x, 8, current_kind, header_icon_size)
+    _draw_weather_icon(img, header_icon_x, 8, current_kind, header_icon_size)
     _text(draw, (header_icon_x + 28, 12), now_local.strftime("%A %B %-d"), 11)
     today_rain_prob = daily[0].get("rain_prob") if daily else None
     today_min = daily[0].get("temp_min") if daily else None
@@ -655,7 +608,7 @@ def generate_png(battery_voltage: float | None = None) -> bytes:
     )
 
     # Right column: 7-day configured-city forecast.
-    _draw_daily_forecast(draw, (C3_X, 44, WIDTH - 16, HEIGHT - 42), daily)
+    _draw_daily_forecast(img, draw, (C3_X, 44, WIDTH - 16, HEIGHT - 42), daily)
 
     # Bottom-left panel: rain bars and temperature line chart.
     _text(draw, (16, CHART_TOP_Y - 12), "Rain next 12h (5m now, hourly later) + Temperature", 11)
