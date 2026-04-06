@@ -61,27 +61,19 @@ The hedgehog in the center panel is picked by a small fixed rule cascade in `fla
 
 Meaning of the rule words:
 
-```python
-freezing = (temp_min <= freezing_temp_c)            # 2.0 C by default
-windy = (current_wind_mps >= windy_speed_mps)       # 10.0 m/s by default
-warm = (temp_max >= warm_temp_c)                    # 16.0 C by default
-cold = (temp_max < warm_temp_c)                     # below 16.0 C by default
-rain_probability_high = (rain_prob >= rain_prob_percent)  # 35 by default
-```
 
 Compact view of the logic:
 
 ```text
-if forecast_kind in snowy_kinds:
+if snowy:
    snow
-elif temp_min <= freezing_temp_c and current_wind_mps >= windy_speed_mps and forecast_kind not in rainy_kinds:
+elif freezing and windy and not rainy:
    freezing_windy
 else:
-   temp_variant = "warm" if temp_max >= warm_temp_c else "cold"
-
-   if forecast_kind in rainy_kinds or rain_prob >= rain_prob_percent:
+   temp_variant = "warm" if warm else "cold"
+   if rainy:
       rainy_<temp_variant>
-   elif forecast_kind in sunny_kinds:
+   elif sunny:
       sunny_<temp_variant>
    else:
       cloudy_<temp_variant>
