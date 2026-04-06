@@ -1,10 +1,17 @@
+
+
 # weather-server
+99% vibe coded 
 
 Weather dashboard project for an e-ink display. The repo contains a Python server that renders weather images and an Arduino sketch for the display device that downloads and shows them.
 
+
+<img src="example-edisplay.JPG" style="max-height: 350px; " />
+<img src="example_dashboard.png"  style="max-height: 350px;" />
+
 ## Repository layout
 
-- `flask-server/` Python HTTP server that fetches weather data, caches it in SQLite, renders the dashboard image, and exposes TRMNL-compatible API endpoints.
+- `flask-server/` Python HTTP server that fetches weather data, caches it in SQLite, renders the dashboard image, and exposes API endpoints for the display client.
 - `arduino/weather_display/` Arduino sketch for the reTerminal E1001. It reads the on-board SHT40 sensor, posts sensor data to the server, downloads `/dashboard.bin`, and deep-sleeps between refreshes.
 - `arduino/epaper_test/` Minimal e-paper hardware test sketch for the reTerminal E1001.
 - `Dockerfile` Container image definition for the Python server.
