@@ -20,6 +20,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
+from zoneinfo import ZoneInfo
 
 import requests
 from PIL import Image, ImageDraw, ImageFont
@@ -37,7 +38,6 @@ from config import (
     CITY_LON,
     DB_PATH,
     HEIGHT,
-    OWM_KEY,
     REFRESH_RATE,
     WIDTH,
 )
@@ -158,37 +158,57 @@ def _wind_direction(deg: float) -> str:
     return dirs[round(deg / 45) % 8]
 
 
-def _weather_kind_from_owm(weather: dict) -> str:
-    icon_code = str(weather.get("icon", ""))
-    if icon_code.startswith("01"):
-        return "moon" if icon_code.endswith("n") else "sun"
-    if icon_code.startswith("02"):
-        return "partly-night" if icon_code.endswith("n") else "partly"
-    if icon_code.startswith(("03", "04")):
-        return "cloud"
-    if icon_code.startswith(("09", "10")):
-        return "rain"
-    if icon_code.startswith("11"):
-        return "storm"
-    if icon_code.startswith("13"):
-        return "snow"
-    if icon_code.startswith("50"):
-        return "fog"
+def _weather_kind_from_openmeteo(code: int, is_day: int | bool) -> str:
+    kind = WeatherStore._weather_kind_from_code(code)
+    if not bool(is_day):
+        if kind == "sun":
+            return "moon"
+        if kind == "partly":
+            return "partly-night"
+    return kind
 
-    code = int(weather.get("id", 0))
-    if 200 <= code < 300:
-        return "storm"
-    if 300 <= code < 600:
-        return "rain"
-    if 600 <= code < 700:
-        return "snow"
-    if 700 <= code < 800:
-        return "fog"
-    if code == 800:
-        return "sun"
-    if code in (801, 802):
-        return "partly"
-    return "cloud"
+
+def _weather_desc_from_openmeteo(code: int) -> str:
+    descriptions = {
+        0: "Clear sky",
+        1: "Mainly clear",
+        2: "Partly cloudy",
+        3: "Overcast",
+        45: "Fog",
+        48: "Rime fog",
+        51: "Light drizzle",
+        53: "Moderate drizzle",
+        55: "Dense drizzle",
+        56: "Light freezing drizzle",
+        57: "Dense freezing drizzle",
+        61: "Slight rain",
+        63: "Moderate rain",
+        65: "Heavy rain",
+        66: "Light freezing rain",
+        67: "Heavy freezing rain",
+        71: "Slight snowfall",
+        73: "Moderate snowfall",
+        75: "Heavy snowfall",
+        77: "Snow grains",
+        80: "Slight rain showers",
+        81: "Moderate rain showers",
+        82: "Violent rain showers",
+        85: "Slight snow showers",
+        86: "Heavy snow showers",
+        95: "Thunderstorm",
+        96: "Thunderstorm with slight hail",
+        99: "Thunderstorm with heavy hail",
+    }
+    return descriptions.get(int(code), "Unknown")
+
+
+def _location_timezone(timezone_name: str | None) -> datetime.tzinfo:
+    if timezone_name:
+        try:
+            return ZoneInfo(timezone_name)
+        except Exception:
+            pass
+    return datetime.timezone.utc
 
 
 # ── Font helpers ───────────────────────────────────────────────────────────────
@@ -235,6 +255,9 @@ def _icon_text(draw: ImageDraw.ImageDraw, xy, text: str, size: int,
 
 def _draw_weather_icon(draw: ImageDraw.ImageDraw, x: float, y: float,
                        kind: str, size: int = 24):
+    if kind in {"partly", "partly-night", "cloud", "fog", "rain", "snow", "storm"}:
+        y -= int(round(size * 0.35))
+
     if kind == "sun":
         _icon_text(draw, (x, y), "☀", int(size * 0.95))
         return
@@ -258,9 +281,9 @@ def _draw_weather_icon(draw: ImageDraw.ImageDraw, x: float, y: float,
         return
 
     if kind == "fog":
-        _icon_text(draw, (x + 1, y + 1), "☁", int(size * 0.9))
-        for row in (y + size - 4, y + size, y + size + 4):
-            draw.line([x + 4, row, x + size + 6, row], fill=0, width=1)
+        _icon_text(draw, (x + 1, y + size // 12), "☁", int(size * 0.88))
+        for row in (y + size - 6, y + size - 2):
+            draw.line([x + 4, row, x + size + 4, row], fill=0, width=1)
         return
 
     _icon_text(draw, (x, y + size // 10), "☁", int(size * 0.95))
@@ -414,6 +437,7 @@ def _draw_proportional_chart(
     rect,
     rain_forecast: dict,
     temp_forecast: list,
+    chart_tz: datetime.tzinfo,
 ):
     x0, y0, x1, y1 = rect
     w = x1 - x0
@@ -471,7 +495,6 @@ def _draw_proportional_chart(
             draw.ellipse([px - 2, py - 2, px + 2, py + 2], fill=0)
             _text(draw, (px, max(y0 + 8, py - 10)), f"{temp_c:.0f}°", 10, anchor="mb")
 
-    chart_tz = datetime.timezone(datetime.timedelta(hours=2))
     start_dt = datetime.datetime.fromtimestamp(start_ts, tz=chart_tz)
     end_dt = datetime.datetime.fromtimestamp(end_ts, tz=chart_tz)
     first_tick_dt = start_dt.replace(minute=0, second=0, microsecond=0)
@@ -502,24 +525,32 @@ def generate_png(battery_voltage: float | None = None) -> bytes:
     city_name, lat, lon = _configured_location()
 
     # Fetch data
-    ams = weather_store.owm_current(lat, lon, OWM_KEY)
-    rain_forecast = weather_store.get_rain_forecast(lat, lon, hours=12, detailed_hours=3)
+    current = weather_store.openmeteo_current(lat, lon, city=city_name)
+    rain_forecast = weather_store.get_rain_forecast(
+        lat,
+        lon,
+        hours=12,
+        detailed_hours=3,
+        city=city_name,
+    )
     temp_forecast = weather_store.get_temperature_forecast(
         lat,
         lon,
         start_ts=rain_forecast["start_ts"],
         hours=12,
+        city=city_name,
     )
     try:
-        daily = weather_store.ams_daily_forecast(lat, lon, days=7)
+        daily = weather_store.daily_forecast(lat, lon, days=7, city=city_name)
     except requests.RequestException as exc:
         print(f"[WARN] daily forecast unavailable: {exc}")
         daily = []
 
-    tz_ams = datetime.timezone(datetime.timedelta(hours=2))
-    now_ams = datetime.datetime.now(tz=tz_ams)
+    current_data = current["current"]
+    location_tz = _location_timezone(current.get("timezone"))
+    now_local = datetime.datetime.now(tz=location_tz)
     indoor = weather_store.latest_sensor_reading() or _indoor
-    footer_sources = weather_store.source_status_line()
+    footer_sources = weather_store.source_status_line(city=city_name)
 
     img = Image.new("L", (WIDTH, HEIGHT), 255)
     draw = ImageDraw.Draw(img)
@@ -538,7 +569,7 @@ def generate_png(battery_voltage: float | None = None) -> bytes:
                                    font=_font(18, True), anchor="la")
     _text(draw, (C3_X, 10), f"{city_name} 7-Day", 16, bold=True)
     _text(draw, (WIDTH - 16, 10),
-          now_ams.strftime("%b %-d  %-I:%M %p"), 13, anchor="ra")
+            now_local.strftime("%b %-d  %-I:%M %p"), 13, anchor="ra")
 
     draw.line([16, 38, WIDTH - 16, 38], fill=180, width=1)
 
@@ -546,25 +577,28 @@ def generate_png(battery_voltage: float | None = None) -> bytes:
     draw.line([RIGHT_DIV_X, 42, RIGHT_DIV_X, HEIGHT - 30], fill=180, width=1)
     draw.line([16, TOP_BOTTOM_Y, RIGHT_DIV_X - 16, TOP_BOTTOM_Y], fill=180, width=1)
 
-    ams_temp = ams["main"]["temp"]
-    ams_feel = ams["main"]["feels_like"]
-    ams_hum = ams["main"]["humidity"]
-    ams_desc = ams["weather"][0]["description"].capitalize()
-    ams_wind = ams["wind"]["speed"]
-    ams_wdir = _wind_direction(ams["wind"]["deg"])
-    ams_gust = ams["wind"].get("gust", 0)
-    ams_kind = _weather_kind_from_owm(ams["weather"][0])
-    ams_header_icon_size = 20
-    ams_header_icon_x = city_title_box[2] + 8
-    _draw_weather_icon(draw, ams_header_icon_x, 8, ams_kind, ams_header_icon_size)
-    _text(draw, (ams_header_icon_x + 28, 12), now_ams.strftime("%A %B %-d"), 11)
+    current_temp = float(current_data["temperature_2m"])
+    current_feels_like = float(current_data["apparent_temperature"])
+    current_humidity = int(round(float(current_data["relative_humidity_2m"])))
+    current_description = _weather_desc_from_openmeteo(int(current_data["weather_code"]))
+    current_wind_speed = float(current_data["wind_speed_10m"])
+    current_wind_direction = _wind_direction(float(current_data["wind_direction_10m"]))
+    current_wind_gust = float(current_data.get("wind_gusts_10m") or 0.0)
+    current_kind = _weather_kind_from_openmeteo(
+        int(current_data["weather_code"]),
+        int(current_data.get("is_day", 1)),
+    )
+    header_icon_size = 20
+    header_icon_x = city_title_box[2] + 8
+    _draw_weather_icon(draw, header_icon_x, 8, current_kind, header_icon_size)
+    _text(draw, (header_icon_x + 28, 12), now_local.strftime("%A %B %-d"), 11)
     today_rain_prob = daily[0].get("rain_prob") if daily else None
     today_min = daily[0].get("temp_min") if daily else None
     today_max = daily[0].get("temp_max") if daily else None
 
     # Left column: current configured-city conditions.
-    ams_temp_text = f"{ams_temp:.0f}°C"
-    _text(draw, (C1_X, 44), ams_temp_text, 46, bold=True)
+    current_temp_text = f"{current_temp:.0f}°C"
+    _text(draw, (C1_X, 44), current_temp_text, 46, bold=True)
     left_detail_y = 96
     left_detail_step = 16
     device_temp_right_x = MID_DIV_X - 12
@@ -586,7 +620,7 @@ def generate_png(battery_voltage: float | None = None) -> bytes:
             _text(draw, (device_info_x, 114), f"Battery  {batt_pct}%  ({bv:.2f} V)", 12)
         if indoor["ts"] is not None:
             ts_dt = datetime.datetime.fromtimestamp(indoor["ts"], tz=datetime.timezone.utc)
-            ts_loc = ts_dt.astimezone(tz_ams)
+            ts_loc = ts_dt.astimezone(location_tz)
             _text(draw, (device_info_x, 130), ts_loc.strftime("Updated  %-I:%M %p"), 11)
     else:
         _text(draw, (device_temp_right_x, 74), "Indoor(sensor)", 12, anchor="ra")
@@ -597,27 +631,27 @@ def generate_png(battery_voltage: float | None = None) -> bytes:
               f"Min {today_min:.0f}°C  Max {today_max:.0f}°C", 12)
     else:
         _text(draw, (C1_X, left_detail_y), "Min --  Max --", 12)
-    _text(draw, (C1_X, left_detail_y + left_detail_step), f"Feels  {ams_feel:.0f}°C", 13)
+        _text(draw, (C1_X, left_detail_y + left_detail_step), f"Feels  {current_feels_like:.0f}°C", 13)
     if today_rain_prob is not None:
         _text(draw, (C1_X, left_detail_y + left_detail_step * 2),
               f"Rain probability  {today_rain_prob}%", 13)
     else:
         _text(draw, (C1_X, left_detail_y + left_detail_step * 2),
               "Rain probability  --", 13)
-    _text(draw, (C1_X, left_detail_y + left_detail_step * 3), ams_desc, 13)
+        _text(draw, (C1_X, left_detail_y + left_detail_step * 3), current_description, 13)
 
-    _text(draw, (C1_X, left_detail_y + left_detail_step * 4), f"Humidity  {ams_hum}%", 13)
+        _text(draw, (C1_X, left_detail_y + left_detail_step * 4), f"Humidity  {current_humidity}%", 13)
     _text(draw, (C1_X, left_detail_y + left_detail_step * 5),
-          f"Wind  {ams_wind:.0f} m/s {ams_wdir}", 13)
+            f"Wind  {current_wind_speed:.0f} m/s {current_wind_direction}", 13)
     _text(draw, (C1_X, left_detail_y + left_detail_step * 6),
-          f"Gusts  {ams_gust:.0f} m/s", 13)
+            f"Gusts  {current_wind_gust:.0f} m/s", 13)
 
     _draw_character_panel(
         img,
         (MID_DIV_X + 4, 46, RIGHT_DIV_X - 4, TOP_BOTTOM_Y - 4),
         daily[0] if daily else None,
-        ams_kind,
-        ams_wind,
+          current_kind,
+          current_wind_speed,
     )
 
     # Right column: 7-day configured-city forecast.
@@ -630,6 +664,7 @@ def generate_png(battery_voltage: float | None = None) -> bytes:
         (16, CHART_TOP_Y, RIGHT_DIV_X - 16, HEIGHT - 30),
         rain_forecast,
         temp_forecast,
+        chart_tz=location_tz,
     )
 
     # Footer: cached source freshness summary.
@@ -768,8 +803,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = weather_store.refresh_all_sources(
                     lat,
                     lon,
-                    OWM_KEY,
                     force=True,
+                    city=CITY,
                 )
                 with _cache_lock:
                     _cache["ts"] = 0

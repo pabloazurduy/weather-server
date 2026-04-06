@@ -6,7 +6,10 @@ import json
 import sqlite3
 import tempfile
 import unittest
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import app
 import models
@@ -34,10 +37,10 @@ TEST_ENDPOINT_POLICIES = {
         table_name="device_sensor",
         per_city=False,
     ),
-    "openmeteo_hourly_ams": EndpointPolicy(
+    "openmeteo_hourly": EndpointPolicy(
         source="Open-Meteo",
         ttl=900,
-        table_name="openmeteo_hourly_ams",
+        table_name="openmeteo_hourly",
     ),
 }
 
@@ -51,10 +54,18 @@ class WeatherStoreTests(unittest.TestCase):
     def tearDown(self):
         self.temp_dir.cleanup()
 
-    def _open_db(self) -> sqlite3.Connection:
+    @contextmanager
+    def _open_db(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def test_init_db_creates_per_source_tables_and_single_file_mode(self):
         self.store.init_db()
@@ -227,6 +238,47 @@ class WeatherStoreTests(unittest.TestCase):
         self.assertEqual(latest["fetched_at"], 1234)
         self.assertNotIn("source_history", tables)
 
+    def test_init_db_renames_legacy_weather_tables(self):
+        store = WeatherStore(self.db_path)
+
+        with self._open_db() as conn:
+            conn.execute(
+                '''
+                CREATE TABLE openmeteo_hourly_ams (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    fetched_at INTEGER NOT NULL,
+                    success INTEGER NOT NULL,
+                    payload_json TEXT,
+                    error_text TEXT
+                )
+                '''
+            )
+            conn.execute(
+                '''
+                INSERT INTO openmeteo_hourly_ams (
+                    fetched_at, success, payload_json, error_text
+                ) VALUES (?, ?, ?, ?)
+                ''',
+                (1234, 1, json.dumps([{"ts": 10, "temp_c": 15.0, "rain_mmh": 0.0}]), None),
+            )
+
+        store.init_db()
+
+        latest = store.latest_snapshot("openmeteo_hourly")
+        with self._open_db() as conn:
+            tables = {
+                row["name"]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                ).fetchall()
+            }
+
+        self.assertIn("openmeteo_hourly", tables)
+        self.assertNotIn("openmeteo_hourly_ams", tables)
+        self.assertIsNotNone(latest)
+        assert latest is not None
+        self.assertEqual(latest["payload"], [{"ts": 10, "temp_c": 15.0, "rain_mmh": 0.0}])
+
     def test_get_rain_forecast_keeps_5_min_detail_then_switches_to_hour_groups(self):
         self.store.buienradar = lambda lat, lon, force=False, city=None: [
             {"time": "10:00", "mmh": 0.0},
@@ -234,7 +286,7 @@ class WeatherStoreTests(unittest.TestCase):
             {"time": "10:10", "mmh": 0.4},
             {"time": "10:15", "mmh": 0.0},
         ]
-        self.store.ams_hourly_forecast = lambda lat, lon, hours=18, force=False, city=None: [
+        self.store.hourly_forecast = lambda lat, lon, hours=18, force=False, city=None: [
             {"ts": 1_710_000_000, "temp_c": 8.0, "rain_mmh": 0.5},
             {"ts": 1_710_003_600, "temp_c": 9.0, "rain_mmh": 1.0},
             {"ts": 1_710_007_200, "temp_c": 10.0, "rain_mmh": 0.0},
@@ -256,9 +308,9 @@ class WeatherStoreTests(unittest.TestCase):
         self.assertEqual(coarse_point["duration_minutes"], 60)
         self.assertEqual(coarse_point["group_start_ts"], forecast["detailed_end_ts"])
 
-    def test_ams_hourly_forecast_filters_around_current_time(self):
-        fixed_now = datetime.datetime(2026, 1, 1, 23, 35, tzinfo=models.AMSTERDAM_TZ)
-        self.store._amsterdam_now = lambda: fixed_now
+    def test_hourly_forecast_filters_around_current_time(self):
+        fixed_now = datetime.datetime(2026, 1, 1, 23, 35, tzinfo=models.BUIENRADAR_TZ)
+        self.store._current_timestamp = lambda: int(fixed_now.timestamp())
 
         hourly_times = []
         temperatures = []
@@ -276,6 +328,7 @@ class WeatherStoreTests(unittest.TestCase):
 
             def json(self):
                 return {
+                    "timezone": "Europe/Amsterdam",
                     "hourly": {
                         "time": hourly_times,
                         "temperature_2m": temperatures,
@@ -287,7 +340,7 @@ class WeatherStoreTests(unittest.TestCase):
         models.requests.get = lambda url, params=None, timeout=6: FakeResponse()
         self.addCleanup(lambda: setattr(models.requests, "get", original_get))
 
-        forecast = self.store.ams_hourly_forecast(SAMPLE_LAT, SAMPLE_LON, hours=12, force=True)
+        forecast = self.store.hourly_forecast(SAMPLE_LAT, SAMPLE_LON, hours=12, force=True)
 
         self.assertTrue(forecast)
         self.assertLessEqual(forecast[0]["ts"], int(fixed_now.timestamp()))
@@ -297,17 +350,77 @@ class WeatherStoreTests(unittest.TestCase):
         )
         self.assertGreater(forecast[-1]["temp_c"], forecast[0]["temp_c"])
 
+    def test_hourly_forecast_uses_response_timezone(self):
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "timezone": "America/Lima",
+                    "hourly": {
+                        "time": ["2026-04-06T00:00"],
+                        "temperature_2m": [12.5],
+                        "precipitation": [0.0],
+                    },
+                }
+
+        original_get = models.requests.get
+        models.requests.get = lambda url, timeout=6: FakeResponse()
+        self.addCleanup(lambda: setattr(models.requests, "get", original_get))
+
+        forecast = self.store.hourly_forecast(SAMPLE_LAT, SAMPLE_LON, hours=1, force=True)
+        expected_ts = int(datetime.datetime(2026, 4, 6, 0, 0, tzinfo=ZoneInfo("America/Lima")).timestamp())
+
+        self.assertEqual(forecast[0]["ts"], expected_ts)
+
+    def test_openmeteo_current_returns_current_payload(self):
+        store = WeatherStore(self.db_path)
+        captured = {}
+
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "timezone": "America/Lima",
+                    "current": {
+                        "temperature_2m": 15.2,
+                        "relative_humidity_2m": 41,
+                        "apparent_temperature": 14.8,
+                        "is_day": 1,
+                        "weather_code": 3,
+                        "wind_speed_10m": 3.4,
+                        "wind_direction_10m": 270,
+                        "wind_gusts_10m": 5.6,
+                    },
+                }
+
+        original_get = models.requests.get
+
+        def fake_get(url, timeout=6):
+            captured["url"] = url
+            return FakeResponse()
+
+        models.requests.get = fake_get
+        self.addCleanup(lambda: setattr(models.requests, "get", original_get))
+
+        payload = store.openmeteo_current(SAMPLE_LAT, SAMPLE_LON, city="Cusco", force=True)
+
+        self.assertEqual(payload["timezone"], "America/Lima")
+        self.assertEqual(payload["current"]["temperature_2m"], 15.2)
+        self.assertIn("current=temperature_2m", captured["url"])
+        self.assertIn("timezone=auto", captured["url"])
+
     def test_get_rain_forecast_uses_hourly_data_when_buienradar_missing(self):
         self.store.buienradar = lambda lat, lon, force=False, city=None: []
-        self.store.ams_hourly_forecast = lambda lat, lon, hours=18, force=False, city=None: [
+        self.store.hourly_forecast = lambda lat, lon, hours=18, force=False, city=None: [
             {"ts": 1_710_000_000, "temp_c": 8.0, "rain_mmh": 0.5},
             {"ts": 1_710_003_600, "temp_c": 9.0, "rain_mmh": 1.0},
             {"ts": 1_710_007_200, "temp_c": 10.0, "rain_mmh": 0.0},
         ]
-        self.store._amsterdam_now = lambda: datetime.datetime.fromtimestamp(
-            1_710_000_000,
-            tz=models.AMSTERDAM_TZ,
-        )
+        self.store._current_timestamp = lambda: 1_710_000_000
 
         forecast = self.store.get_rain_forecast(SAMPLE_LAT, SAMPLE_LON, hours=2, detailed_hours=1)
 
@@ -315,34 +428,27 @@ class WeatherStoreTests(unittest.TestCase):
         self.assertEqual(forecast["points"][0]["duration_minutes"], 60)
         self.assertEqual(forecast["points"][0]["source"], "Open-Meteo")
 
-    def test_owm_current_uses_city_query_param(self):
-        captured = {}
+    def test_buienradar_returns_empty_list_outside_supported_region(self):
         store = WeatherStore(self.db_path)
 
         class FakeResponse:
-            def raise_for_status(self):
-                return None
+            status_code = 404
+            text = "Not found: location must be inside the Netherlands or Belgium."
 
-            def json(self):
-                return {"ok": True}
+            def raise_for_status(self):
+                raise AssertionError("raise_for_status should not be called")
 
         original_get = models.requests.get
-
-        def fake_get(url, params=None, timeout=6):
-            captured["url"] = url
-            captured["params"] = params
-            return FakeResponse()
-
-        models.requests.get = fake_get
+        models.requests.get = lambda url, timeout=6: FakeResponse()
         self.addCleanup(lambda: setattr(models.requests, "get", original_get))
 
-        payload = store.owm_current(SAMPLE_LAT, SAMPLE_LON, "demo-key", city="Berlin", force=True)
+        forecast = store.buienradar(-13.5, -71.9, city="Cusco", force=True)
+        latest = store.latest_snapshot("buienradar_rain", city="Cusco")
 
-        self.assertEqual(payload, {"ok": True})
-        self.assertEqual(captured["url"], "https://api.openweathermap.org/data/2.5/weather")
-        self.assertEqual(captured["params"]["q"], "Berlin")
-        self.assertEqual(captured["params"]["appid"], "demo-key")
-        self.assertEqual(captured["params"]["units"], "metric")
+        self.assertEqual(forecast, [])
+        self.assertIsNotNone(latest)
+        assert latest is not None
+        self.assertEqual(latest["payload"], [])
 
     def test_character_icon_key_selects_rainy_warm(self):
         icon_key = app._character_icon_key(

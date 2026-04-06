@@ -52,15 +52,12 @@ def _structured_setting(name: str | tuple[str, ...], default):
     return value
 
 
-CITY_LAT = _setting(("CITY_LAT", "AMS_LAT"), None, float)
-CITY_LON = _setting(("CITY_LON", "AMS_LON"), None, float)
-AMS_LAT = CITY_LAT
-AMS_LON = CITY_LON
+CITY_LAT = _setting("CITY_LAT", None, float)
+CITY_LON = _setting("CITY_LON", None, float)
 CITY = _setting("CITY", "Amsterdam", str)
 WIDTH = _setting("WIDTH", 800, int)
 HEIGHT = _setting("HEIGHT", 480, int)
 REFRESH_RATE = _setting("REFRESH_RATE", 900, int)
-OWM_KEY = _setting("OWM_KEY", "", str)
 API_KEY = _setting("API_KEY", "replace-with-device-api-key", str)
 BASE_URL = _setting("BASE_URL", "http://127.0.0.1:8080", str)
 BIND_HOST = _setting("BIND_HOST", "0.0.0.0", str)

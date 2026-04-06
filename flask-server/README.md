@@ -39,11 +39,11 @@ By default the SQLite database is stored in `weather_cache.sqlite3` in this dire
 
 Important settings:
 
-- `CITY` changes the displayed city name and is forwarded to OpenWeather as the `q` parameter.
+- `CITY` changes the displayed city name and selects the location whose data is cached under that city key.
 - `CITY_LAT` and `CITY_LON` are the coordinates used for Open-Meteo and Buienradar. They must describe the same place as `CITY`.
-- `OWM_KEY`, `API_KEY`, and `BASE_URL` are required for normal operation.
+- `API_KEY` and `BASE_URL` are required for normal operation.
 
-`CITY` format follows OpenWeather's city-name query formats:
+`CITY` supports these formats when you need to disambiguate the location:
 
 - `City`
 - `City,CC`
@@ -51,4 +51,14 @@ Important settings:
 
 Use ISO 3166 country codes for `CC`. The state code form is mainly for US locations. No camel case is required; use the normal city spelling, including spaces or local-language names when needed. Prefer `City,CC` when the city name is ambiguous, for example `Amsterdam,NL` or `Portland,OR,US`.
 
-Legacy `AMS_LAT` and `AMS_LON` settings still work as fallbacks, but `CITY_LAT` and `CITY_LON` are the canonical names.
+Dashboard source usage:
+
+- Current conditions, the left-side main temperature, the day header time, the 7-day min/max values, and the temperature plot all come from Open-Meteo.
+- Buienradar is only used for short-range rain detail inside the Netherlands and Belgium; elsewhere the rain chart falls back to Open-Meteo precipitation.
+
+Container image publishing:
+
+- The repository workflow publishes the server image to `ghcr.io/pabloazurduy/weather-server` on pushes to `main`.
+- Pull requests still build the image to validate Docker changes without pushing a package.
+
+Set `CITY_LAT` and `CITY_LON` directly. The old Amsterdam-specific coordinate setting names are no longer supported.

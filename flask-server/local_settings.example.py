@@ -1,19 +1,18 @@
 # Copy this file to local_settings.py and fill in your local values.
 #
-# CITY is forwarded to OpenWeather as the q=... parameter.
+# CITY identifies the location label and cache key.
 # Use a normal city name, optionally with country or state/country to disambiguate:
 #   "Amsterdam"
 #   "Amsterdam,NL"
 #   "Portland,OR,US"
-# No camel case is required. The app trims extra whitespace before sending it.
+# No camel case is required. The app trims extra whitespace before caching it.
 #
-# CITY_LAT and CITY_LON must point to the same place as CITY because Open-Meteo
-# and Buienradar use coordinates instead of the city name.
+# CITY_LAT and CITY_LON must point to the same place as CITY because the dashboard
+# uses Open-Meteo and Buienradar coordinates for weather data.
 
 CITY = "Amsterdam,NL"
 CITY_LAT = 52.370216
 CITY_LON = 4.895168
-OWM_KEY = "replace-with-openweather-api-key"
 API_KEY = "replace-with-device-api-key"
 BASE_URL = "http://192.168.1.100:8080"
 BIND_HOST = "0.0.0.0"
