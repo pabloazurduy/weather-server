@@ -215,8 +215,12 @@ def _location_timezone(timezone_name: str | None) -> datetime.tzinfo:
 
 # ── Font helpers ───────────────────────────────────────────────────────────────
 
+APP_DIR = Path(__file__).resolve().parent
+FONT_DIR = APP_DIR / "fonts"
+
 TEXT_FONT_PATHS = {
     False: (
+        str(FONT_DIR / "LiberationSans-Regular.ttf"),
         "/System/Library/Fonts/SFNSDisplay.ttf",
         "/System/Library/Fonts/Helvetica.ttc",
         "/System/Library/Fonts/Supplemental/Arial.ttf",
@@ -224,6 +228,8 @@ TEXT_FONT_PATHS = {
         "/usr/share/fonts/dejavu/DejaVuSans.ttf",
     ),
     True: (
+        str(FONT_DIR / "LiberationSans-Bold.ttf"),
+        str(FONT_DIR / "LiberationSans-Regular.ttf"),
         "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
         "/System/Library/Fonts/Helvetica.ttc",
         "/usr/share/fonts/liberation/LiberationSans-Bold.ttf",
@@ -234,6 +240,7 @@ TEXT_FONT_PATHS = {
 }
 
 WEATHER_ICON_FONT_PATHS = (
+    str(FONT_DIR / "weathericons-regular-webfont.ttf"),
     "/usr/share/fonts/weathericons/weathericons-regular-webfont.ttf",
 )
 
@@ -652,33 +659,35 @@ def generate_png(battery_voltage: float | None = None) -> bytes:
 
     # Left column: current configured-city conditions.
     current_temp_text = f"{current_temp:.0f}°C"
-    _text(draw, (C1_X, 44), current_temp_text, 46, bold=True)
+    _text(draw, (C1_X, 44), current_temp_text, 46)
     left_detail_y = 96
     left_detail_step = 16
     device_temp_right_x = MID_DIV_X - 12
+    device_detail_y = left_detail_y
+    device_detail_step = left_detail_step
     if indoor["temp"] is not None:
         indoor_temp_text = f"{indoor['temp']:.1f}°C"
-        _text(draw, (device_temp_right_x, 44), indoor_temp_text, 46, bold=True, anchor="ra")
+        _text(draw, (device_temp_right_x, 44), indoor_temp_text, 46, anchor="ra")
         indoor_temp_box = draw.textbbox(
             (device_temp_right_x, 44),
             indoor_temp_text,
-            font=_font(46, True),
+            font=_font(46),
             anchor="ra",
         )
         device_info_x = indoor_temp_box[0]
-        _text(draw, (device_info_x, indoor_temp_box[3] + 4), "Indoor(sensor)", 12)
-        _text(draw, (device_info_x, 98), f"Humidity  {indoor['humidity']:.0f}%", 12)
+        _text(draw, (device_info_x, device_detail_y), "Indoor(sensor)", 12)
+        _text(draw, (device_info_x, device_detail_y + device_detail_step), f"Humidity  {indoor['humidity']:.0f}%", 12)
         bv = indoor.get("battery_voltage") or battery_voltage
         if bv is not None:
             batt_pct = max(0, min(100, int((bv - 3.3) / (4.2 - 3.3) * 100)))
-            _text(draw, (device_info_x, 114), f"Battery  {batt_pct}%  ({bv:.2f} V)", 12)
+            _text(draw, (device_info_x, device_detail_y + device_detail_step * 2), f"Battery  {batt_pct}%  ({bv:.2f} V)", 12)
         if indoor["ts"] is not None:
             ts_dt = datetime.datetime.fromtimestamp(indoor["ts"], tz=datetime.timezone.utc)
             ts_loc = ts_dt.astimezone(location_tz)
-            _text(draw, (device_info_x, 130), ts_loc.strftime("Updated  %-I:%M %p"), 11)
+            _text(draw, (device_info_x, device_detail_y + device_detail_step * 3), ts_loc.strftime("Updated  %-I:%M %p"), 11)
     else:
-        _text(draw, (device_temp_right_x, 74), "Indoor(sensor)", 12, anchor="ra")
-        _text(draw, (device_temp_right_x, 98), "Device data unavailable", 12, anchor="ra")
+        _text(draw, (device_temp_right_x, device_detail_y), "Indoor(sensor)", 12, anchor="ra")
+        _text(draw, (device_temp_right_x, device_detail_y + device_detail_step), "Device data unavailable", 12, anchor="ra")
 
     if today_min is not None and today_max is not None:
         _text(draw, (C1_X, left_detail_y),
