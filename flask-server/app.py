@@ -50,6 +50,14 @@ CACHE_TTL = 300  # regenerate image every 5 min
 _indoor: dict = {"temp": None, "humidity": None, "battery_voltage": None, "ts": None}
 
 
+def _configured_location() -> tuple[float, float]:
+    if AMS_LAT is None or AMS_LON is None:
+        raise RuntimeError(
+            "Set WEATHER_AMS_LAT and WEATHER_AMS_LON or define AMS_LAT and AMS_LON in flask-server/local_settings.py"
+        )
+    return AMS_LAT, AMS_LON
+
+
 # ── Weather helpers ────────────────────────────────────────────────────────────
 
 def _wind_direction(deg: float) -> str:
@@ -363,11 +371,12 @@ def _draw_proportional_chart(
         for point in temp_forecast:
             px = x_for(int(point["ts"]))
             py = y_for_temp(float(point["temp_c"]))
-            points.append((px, py))
+            points.append((px, py, float(point["temp_c"])))
         for index in range(len(points) - 1):
-            draw.line([points[index], points[index + 1]], fill=0, width=2)
-        for px, py in points:
+            draw.line([points[index][:2], points[index + 1][:2]], fill=0, width=2)
+        for px, py, temp_c in points:
             draw.ellipse([px - 2, py - 2, px + 2, py + 2], fill=0)
+            _text(draw, (px, max(y0 + 8, py - 10)), f"{temp_c:.0f}°", 10, anchor="mb")
 
     chart_tz = datetime.timezone(datetime.timedelta(hours=2))
     start_dt = datetime.datetime.fromtimestamp(start_ts, tz=chart_tz)
@@ -397,17 +406,19 @@ def _draw_proportional_chart(
 # ── PNG generation ─────────────────────────────────────────────────────────────
 
 def generate_png(battery_voltage: float | None = None) -> bytes:
+    lat, lon = _configured_location()
+
     # Fetch data
-    ams = weather_store.owm_current(AMS_LAT, AMS_LON, OWM_KEY)
-    rain_forecast = weather_store.get_rain_forecast(AMS_LAT, AMS_LON, hours=12, detailed_hours=3)
+    ams = weather_store.owm_current(lat, lon, OWM_KEY)
+    rain_forecast = weather_store.get_rain_forecast(lat, lon, hours=12, detailed_hours=3)
     temp_forecast = weather_store.get_temperature_forecast(
-        AMS_LAT,
-        AMS_LON,
+        lat,
+        lon,
         start_ts=rain_forecast["start_ts"],
         hours=12,
     )
     try:
-        daily = weather_store.ams_daily_forecast(AMS_LAT, AMS_LON, days=7)
+        daily = weather_store.ams_daily_forecast(lat, lon, days=7)
     except requests.RequestException as exc:
         print(f"[WARN] daily forecast unavailable: {exc}")
         daily = []
@@ -420,17 +431,18 @@ def generate_png(battery_voltage: float | None = None) -> bytes:
     img = Image.new("L", (WIDTH, HEIGHT), 255)
     draw = ImageDraw.Draw(img)
 
-    MID_DIV_X = 270
+    MID_DIV_X = 352
     RIGHT_DIV_X = 540
     TOP_BOTTOM_Y = 214
     CHART_TOP_Y = 236
     C1_X = 16
-    C2_X = MID_DIV_X + 12
     C3_X = RIGHT_DIV_X + 12
 
     # Layout frame: column titles, timestamp, and divider lines.
-    _text(draw, (C1_X, 10), "Amsterdam", 18, bold=True)
-    _text(draw, (C2_X, 10), "Device", 18, bold=True)
+    title_y = 10
+    _text(draw, (C1_X, title_y), "Amsterdam", 18, bold=True)
+    amsterdam_title_box = draw.textbbox((C1_X, title_y), "Amsterdam",
+                                        font=_font(18, True), anchor="la")
     _text(draw, (C3_X, 10), "Amsterdam 7-Day", 16, bold=True)
     _text(draw, (WIDTH - 16, 10),
           now_ams.strftime("%b %-d  %-I:%M %p"), 13, anchor="ra")
@@ -449,6 +461,10 @@ def generate_png(battery_voltage: float | None = None) -> bytes:
     ams_wdir = _wind_direction(ams["wind"]["deg"])
     ams_gust = ams["wind"].get("gust", 0)
     ams_kind = _weather_kind_from_owm(ams["weather"][0])
+    ams_header_icon_size = 20
+    ams_header_icon_x = amsterdam_title_box[2] + 8
+    _draw_weather_icon(draw, ams_header_icon_x, 8, ams_kind, ams_header_icon_size)
+    _text(draw, (ams_header_icon_x + 28, 12), now_ams.strftime("%A %B %-d"), 11)
     today_rain_prob = daily[0].get("rain_prob") if daily else None
     today_min = daily[0].get("temp_min") if daily else None
     today_max = daily[0].get("temp_max") if daily else None
@@ -456,17 +472,26 @@ def generate_png(battery_voltage: float | None = None) -> bytes:
     # Left column: current Amsterdam conditions.
     ams_temp_text = f"{ams_temp:.0f}°C"
     _text(draw, (C1_X, 44), ams_temp_text, 46, bold=True)
-    ams_temp_bbox = draw.textbbox((C1_X, 44), ams_temp_text,
-                                  font=_font(46, True), anchor="la")
-    ams_temp_center_y = (ams_temp_bbox[1] + ams_temp_bbox[3]) / 2
-    ams_icon_size = 34
-    ams_icon_x = ams_temp_bbox[2] + 8
-    ams_icon_y = int(ams_temp_center_y - ams_icon_size * 0.8)
-    ams_date_y = int(ams_temp_center_y - 5)
-    _draw_weather_icon(draw, ams_icon_x, ams_icon_y, ams_kind, ams_icon_size)
-    _text(draw, (ams_icon_x + 36, ams_date_y), now_ams.strftime("%A %B %-d"), 10)
     left_detail_y = 96
     left_detail_step = 16
+    device_temp_x = 228
+    device_label_x = 150
+    if indoor["temp"] is not None:
+        _text(draw, (device_label_x, 74), "Indoor(sensor)", 12, anchor="lm")
+        _text(draw, (device_temp_x, 44), f"{indoor['temp']:.1f}°C", 46, bold=True)
+        _text(draw, (device_label_x, 98), f"Humidity  {indoor['humidity']:.0f}%", 12)
+        bv = indoor.get("battery_voltage") or battery_voltage
+        if bv is not None:
+            batt_pct = max(0, min(100, int((bv - 3.3) / (4.2 - 3.3) * 100)))
+            _text(draw, (device_label_x, 114), f"Battery  {batt_pct}%  ({bv:.2f} V)", 12)
+        if indoor["ts"] is not None:
+            ts_dt = datetime.datetime.fromtimestamp(indoor["ts"], tz=datetime.timezone.utc)
+            ts_loc = ts_dt.astimezone(tz_ams)
+            _text(draw, (device_label_x, 130), ts_loc.strftime("Updated  %-I:%M %p"), 11)
+    else:
+        _text(draw, (device_label_x, 74), "Indoor(sensor)", 12, anchor="lm")
+        _text(draw, (device_label_x, 98), "Device data unavailable", 12)
+
     if today_min is not None and today_max is not None:
         _text(draw, (C1_X, left_detail_y),
               f"Min {today_min:.0f}°C  Max {today_max:.0f}°C", 12)
@@ -486,26 +511,6 @@ def generate_png(battery_voltage: float | None = None) -> bytes:
           f"Wind  {ams_wind:.0f} m/s {ams_wdir}", 13)
     _text(draw, (C1_X, left_detail_y + left_detail_step * 6),
           f"Gusts  {ams_gust:.0f} m/s", 13)
-
-    # Middle column: indoor/device sensor readings.
-    if indoor["temp"] is not None:
-        _text(draw, (C2_X, 44), f"{indoor['temp']:.1f}°C", 46, bold=True)
-        _text(draw, (C2_X, 96), f"Humidity  {indoor['humidity']:.0f}%", 13)
-        bv = indoor.get("battery_voltage") or battery_voltage
-        if bv is not None:
-            batt_pct = max(0, min(100, int((bv - 3.3) / (4.2 - 3.3) * 100)))
-            _text(draw, (C2_X, 114), f"Battery  {batt_pct}%  ({bv:.2f} V)", 13)
-        if indoor["ts"] is not None:
-            ts_dt = datetime.datetime.fromtimestamp(indoor["ts"],
-                                                    tz=datetime.timezone.utc)
-            ts_loc = ts_dt.astimezone(tz_ams)
-            _text(draw, (C2_X, 134), ts_loc.strftime("Updated  %-I:%M %p"), 12)
-    else:
-        _text(draw, (C2_X, 70), "No sensor data", 15)
-        _text(draw, (C2_X, 94), "POST /sensor to enable", 11)
-        if battery_voltage is not None:
-            batt_pct = max(0, min(100, int((battery_voltage - 3.3) / (4.2 - 3.3) * 100)))
-            _text(draw, (C2_X, 114), f"Battery  {batt_pct}%  ({battery_voltage:.2f} V)", 13)
 
     # Right column: 7-day Amsterdam forecast.
     _draw_daily_forecast(draw, (C3_X, 44, WIDTH - 16, HEIGHT - 42), daily)
@@ -651,9 +656,10 @@ class Handler(BaseHTTPRequestHandler):
 
         elif parsed.path == "/force-refresh-sources":
             try:
+                lat, lon = _configured_location()
                 result = weather_store.refresh_all_sources(
-                    AMS_LAT,
-                    AMS_LON,
+                    lat,
+                    lon,
                     OWM_KEY,
                     force=True,
                 )

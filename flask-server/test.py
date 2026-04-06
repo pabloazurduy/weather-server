@@ -12,6 +12,10 @@ import models
 from models import EndpointPolicy, WeatherStore
 
 
+SAMPLE_LAT = 12.34
+SAMPLE_LON = 56.78
+
+
 TEST_ENDPOINT_POLICIES = {
     "alpha": EndpointPolicy(
         source="Alpha",
@@ -180,7 +184,7 @@ class WeatherStoreTests(unittest.TestCase):
             {"ts": 1_710_000_900, "mmh": 0.0},
         ]
 
-        forecast = self.store.get_rain_forecast(12.34, 56.78, hours=2, detailed_hours=1)
+        forecast = self.store.get_rain_forecast(SAMPLE_LAT, SAMPLE_LON, hours=2, detailed_hours=1)
 
         self.assertEqual(forecast["start_ts"], 1_710_000_000)
         self.assertEqual(forecast["end_ts"], 1_710_007_200)
@@ -221,7 +225,7 @@ class WeatherStoreTests(unittest.TestCase):
         models.requests.get = lambda url, timeout=6: FakeResponse()
         self.addCleanup(lambda: setattr(models.requests, "get", original_get))
 
-        forecast = self.store.ams_hourly_forecast(12.34, 56.78, hours=12, force=True)
+        forecast = self.store.ams_hourly_forecast(SAMPLE_LAT, SAMPLE_LON, hours=12, force=True)
 
         self.assertTrue(forecast)
         self.assertLessEqual(forecast[0]["ts"], int(fixed_now.timestamp()))
@@ -243,7 +247,7 @@ class WeatherStoreTests(unittest.TestCase):
             tz=models.AMSTERDAM_TZ,
         )
 
-        forecast = self.store.get_rain_forecast(12.34, 56.78, hours=2, detailed_hours=1)
+        forecast = self.store.get_rain_forecast(SAMPLE_LAT, SAMPLE_LON, hours=2, detailed_hours=1)
 
         self.assertEqual(forecast["detailed_end_ts"], forecast["start_ts"])
         self.assertEqual(forecast["points"][0]["duration_minutes"], 60)

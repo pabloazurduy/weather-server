@@ -130,6 +130,7 @@ The Python weather dashboard server now lives in `flask-server/`.
 ### Local configuration
 
 - Copy `flask-server/local_settings.example.py` to `flask-server/local_settings.py` and fill in your local values.
+- Keep `AMS_LAT` and `AMS_LON` only in `flask-server/local_settings.py` or `WEATHER_AMS_LAT` / `WEATHER_AMS_LON`; do not commit them.
 - Copy `arduino/weather_display/secrets.example.h` to `arduino/weather_display/secrets.h` and fill in your local Wi-Fi and server values.
 - Both local files are ignored by Git and excluded from the Docker build context.
 
@@ -148,6 +149,8 @@ The server listens on port `8080` by default and exposes `/up`, `/refresh`, `/fo
 ```bash
 docker build -t weather-dashboard .
 docker run -p 8080:8080 \
+   -e WEATHER_AMS_LAT=your-private-latitude \
+   -e WEATHER_AMS_LON=your-private-longitude \
    -e WEATHER_OWM_KEY=your-openweather-key \
    -e WEATHER_API_KEY=your-device-api-key \
    -e WEATHER_BASE_URL=http://your-host:8080 \
