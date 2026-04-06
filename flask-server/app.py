@@ -31,6 +31,9 @@ from config import (
     BASE_URL,
     BIND_HOST,
     BIND_PORT,
+    CHARACTER_ASSET_ROOT,
+    CHARACTER_NAME,
+    CHARACTER_RULES,
     DB_PATH,
     HEIGHT,
     OWM_KEY,
@@ -48,6 +51,7 @@ CACHE_TTL = 300  # regenerate image every 5 min
 
 # Latest in-process sensor values; the persistent source of truth is SQLite.
 _indoor: dict = {"temp": None, "humidity": None, "battery_voltage": None, "ts": None}
+_character_icon_cache: dict[str, Image.Image] = {}
 
 
 def _configured_location() -> tuple[float, float]:
@@ -56,6 +60,94 @@ def _configured_location() -> tuple[float, float]:
             "Set WEATHER_AMS_LAT and WEATHER_AMS_LON or define AMS_LAT and AMS_LON in flask-server/local_settings.py"
         )
     return AMS_LAT, AMS_LON
+
+
+def _character_icon_key(
+    today_forecast: dict | None,
+    current_kind: str,
+    current_wind_mps: float,
+    rules: dict | None = None,
+) -> str:
+    active_rules = rules or CHARACTER_RULES
+    warm_temp_c = float(active_rules.get("warm_temp_c", 16.0))
+    freezing_temp_c = float(active_rules.get("freezing_temp_c", 2.0))
+    windy_speed_mps = float(active_rules.get("windy_speed_mps", 10.0))
+    rain_prob_percent = int(active_rules.get("rain_prob_percent", 35))
+    sunny_kinds = set(active_rules.get("sunny_kinds", ["sun", "partly"]))
+    rainy_kinds = set(active_rules.get("rainy_kinds", ["rain", "storm"]))
+    snowy_kinds = set(active_rules.get("snowy_kinds", ["snow"]))
+
+    forecast = today_forecast or {}
+    forecast_kind = str(forecast.get("kind") or current_kind or "cloud")
+    forecast_min = float(forecast.get("temp_min") or 0.0)
+    forecast_max = float(forecast.get("temp_max") or forecast_min)
+    rain_prob = int(forecast.get("rain_prob") or 0)
+
+    if forecast_kind in snowy_kinds:
+        return "snow"
+
+    if forecast_min <= freezing_temp_c and current_wind_mps >= windy_speed_mps and forecast_kind not in rainy_kinds:
+        return "freezing_windy"
+
+    temp_variant = "warm" if forecast_max >= warm_temp_c else "cold"
+
+    if forecast_kind in rainy_kinds or rain_prob >= rain_prob_percent:
+        return f"rainy_{temp_variant}"
+
+    if forecast_kind in sunny_kinds:
+        return f"sunny_{temp_variant}"
+
+    return f"cloudy_{temp_variant}"
+
+
+def _load_character_icon(icon_key: str) -> Image.Image | None:
+    icon_path = CHARACTER_ASSET_ROOT / CHARACTER_NAME / f"{icon_key}.png"
+    cache_key = str(icon_path)
+    cached_icon = _character_icon_cache.get(cache_key)
+    if cached_icon is not None:
+        return cached_icon
+    if not icon_path.exists():
+        return None
+    with Image.open(icon_path) as image:
+        cached_icon = image.convert("L")
+    _character_icon_cache[cache_key] = cached_icon
+    return cached_icon
+
+
+def _character_icon_label(icon_key: str) -> str:
+    return icon_key.replace("_", " ")
+
+
+def _draw_character_panel(
+    img: Image.Image,
+    rect,
+    today_forecast: dict | None,
+    current_kind: str,
+    current_wind_mps: float,
+):
+    draw = ImageDraw.Draw(img)
+    x0, y0, x1, y1 = rect
+    icon_key = _character_icon_key(today_forecast, current_kind, current_wind_mps)
+    icon = _load_character_icon(icon_key)
+    panel_label = _character_icon_label(icon_key)
+    _draw_weather_icon(draw, x0 + 8, y0 + 2, current_kind, 20)
+    _text(draw, (x0 + 36, y0 + 12), panel_label, 13)
+
+    if icon is None:
+        _text(draw, (x0 + 12, y0 + 30), f"{CHARACTER_NAME}/{icon_key}", 11)
+        return
+
+    max_w = max(1, x1 - x0 - 20)
+    max_h = max(1, y1 - y0 - 36)
+    scale = min(max_w / icon.width, max_h / icon.height)
+    target_size = (
+        max(1, int(round(icon.width * scale))),
+        max(1, int(round(icon.height * scale))),
+    )
+    rendered = icon.resize(target_size, Image.Resampling.NEAREST) if target_size != icon.size else icon
+    paste_x = x0 + (x1 - x0 - rendered.width) // 2
+    paste_y = y0 + 24 + (y1 - y0 - 24 - rendered.height) // 2
+    img.paste(rendered, (paste_x, paste_y))
 
 
 # ── Weather helpers ────────────────────────────────────────────────────────────
@@ -474,23 +566,30 @@ def generate_png(battery_voltage: float | None = None) -> bytes:
     _text(draw, (C1_X, 44), ams_temp_text, 46, bold=True)
     left_detail_y = 96
     left_detail_step = 16
-    device_temp_x = 228
-    device_label_x = 150
+    device_temp_right_x = MID_DIV_X - 12
     if indoor["temp"] is not None:
-        _text(draw, (device_label_x, 74), "Indoor(sensor)", 12, anchor="lm")
-        _text(draw, (device_temp_x, 44), f"{indoor['temp']:.1f}°C", 46, bold=True)
-        _text(draw, (device_label_x, 98), f"Humidity  {indoor['humidity']:.0f}%", 12)
+        indoor_temp_text = f"{indoor['temp']:.1f}°C"
+        _text(draw, (device_temp_right_x, 44), indoor_temp_text, 46, bold=True, anchor="ra")
+        indoor_temp_box = draw.textbbox(
+            (device_temp_right_x, 44),
+            indoor_temp_text,
+            font=_font(46, True),
+            anchor="ra",
+        )
+        device_info_x = indoor_temp_box[0]
+        _text(draw, (device_info_x, indoor_temp_box[3] + 4), "Indoor(sensor)", 12)
+        _text(draw, (device_info_x, 98), f"Humidity  {indoor['humidity']:.0f}%", 12)
         bv = indoor.get("battery_voltage") or battery_voltage
         if bv is not None:
             batt_pct = max(0, min(100, int((bv - 3.3) / (4.2 - 3.3) * 100)))
-            _text(draw, (device_label_x, 114), f"Battery  {batt_pct}%  ({bv:.2f} V)", 12)
+            _text(draw, (device_info_x, 114), f"Battery  {batt_pct}%  ({bv:.2f} V)", 12)
         if indoor["ts"] is not None:
             ts_dt = datetime.datetime.fromtimestamp(indoor["ts"], tz=datetime.timezone.utc)
             ts_loc = ts_dt.astimezone(tz_ams)
-            _text(draw, (device_label_x, 130), ts_loc.strftime("Updated  %-I:%M %p"), 11)
+            _text(draw, (device_info_x, 130), ts_loc.strftime("Updated  %-I:%M %p"), 11)
     else:
-        _text(draw, (device_label_x, 74), "Indoor(sensor)", 12, anchor="lm")
-        _text(draw, (device_label_x, 98), "Device data unavailable", 12)
+        _text(draw, (device_temp_right_x, 74), "Indoor(sensor)", 12, anchor="ra")
+        _text(draw, (device_temp_right_x, 98), "Device data unavailable", 12, anchor="ra")
 
     if today_min is not None and today_max is not None:
         _text(draw, (C1_X, left_detail_y),
@@ -511,6 +610,14 @@ def generate_png(battery_voltage: float | None = None) -> bytes:
           f"Wind  {ams_wind:.0f} m/s {ams_wdir}", 13)
     _text(draw, (C1_X, left_detail_y + left_detail_step * 6),
           f"Gusts  {ams_gust:.0f} m/s", 13)
+
+    _draw_character_panel(
+        img,
+        (MID_DIV_X + 4, 46, RIGHT_DIV_X - 4, TOP_BOTTOM_Y - 4),
+        daily[0] if daily else None,
+        ams_kind,
+        ams_wind,
+    )
 
     # Right column: 7-day Amsterdam forecast.
     _draw_daily_forecast(draw, (C3_X, 44, WIDTH - 16, HEIGHT - 42), daily)

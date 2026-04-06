@@ -131,6 +131,7 @@ The Python weather dashboard server now lives in `flask-server/`.
 
 - Copy `flask-server/local_settings.example.py` to `flask-server/local_settings.py` and fill in your local values.
 - Keep `AMS_LAT` and `AMS_LON` only in `flask-server/local_settings.py` or `WEATHER_AMS_LAT` / `WEATHER_AMS_LON`; do not commit them.
+- Optional mascot panel settings live in `CHARACTER_NAME`, `CHARACTER_ASSET_ROOT`, and `CHARACTER_RULES`. Set `CHARACTER_NAME` to a folder under `flask-server/img/` that contains `sunny_warm.png`, `sunny_cold.png`, `rainy_warm.png`, `rainy_cold.png`, `cloudy_warm.png`, `cloudy_cold.png`, `snow.png`, and `freezing_windy.png`.
 - Copy `arduino/weather_display/secrets.example.h` to `arduino/weather_display/secrets.h` and fill in your local Wi-Fi and server values.
 - Both local files are ignored by Git and excluded from the Docker build context.
 

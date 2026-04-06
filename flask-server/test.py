@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import app
 import models
 from models import EndpointPolicy, WeatherStore
 
@@ -252,6 +253,26 @@ class WeatherStoreTests(unittest.TestCase):
         self.assertEqual(forecast["detailed_end_ts"], forecast["start_ts"])
         self.assertEqual(forecast["points"][0]["duration_minutes"], 60)
         self.assertEqual(forecast["points"][0]["source"], "Open-Meteo")
+
+    def test_character_icon_key_selects_rainy_warm(self):
+        icon_key = app._character_icon_key(
+            {"kind": "rain", "temp_min": 12.0, "temp_max": 18.0, "rain_prob": 80},
+            current_kind="rain",
+            current_wind_mps=4.0,
+            rules=app.CHARACTER_RULES,
+        )
+
+        self.assertEqual(icon_key, "rainy_warm")
+
+    def test_character_icon_key_selects_freezing_windy(self):
+        icon_key = app._character_icon_key(
+            {"kind": "cloud", "temp_min": -3.0, "temp_max": 1.0, "rain_prob": 10},
+            current_kind="cloud",
+            current_wind_mps=12.0,
+            rules=app.CHARACTER_RULES,
+        )
+
+        self.assertEqual(icon_key, "freezing_windy")
 
 
 if __name__ == "__main__":
