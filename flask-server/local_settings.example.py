@@ -13,7 +13,6 @@
 CITY = "Amsterdam,NL"
 CITY_LAT = 52.370216
 CITY_LON = 4.895168
-API_KEY = "replace-with-device-api-key"
 BASE_URL = "http://192.168.1.100:8080"
 BIND_HOST = "0.0.0.0"
 BIND_PORT = 8080

@@ -4,7 +4,7 @@ Weather dashboard server for TRMNL-compatible e-ink device.
 Serves a pre-rendered 800x480 PNG via a minimal TRMNL-like API.
 
 Endpoints:
-  GET /api/setup?mac_address=XX   -> {"status":200,"api_key":"...","image_url":"..."}
+    GET /api/setup?mac_address=XX   -> {"status":200,"image_url":"..."}
   GET /api/display                -> {"image_url":"...","refresh_rate":900}
   GET /dashboard.png              -> 800x480 2-bit grayscale PNG
   GET /dashboard.bin              -> raw 1-bit packed bitmap (48000 bytes)
@@ -28,7 +28,6 @@ import requests
 from PIL import Image, ImageDraw, ImageFont
 
 from config import (
-    API_KEY,
     BASE_URL,
     BIND_HOST,
     BIND_PORT,
@@ -838,7 +837,6 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path in ("/api/setup", "/api/setup/"):
             body = json.dumps({
                 "status": 200,
-                "api_key": API_KEY,
                 "friendly_id": "weather-dashboard",
                 "image_url": f"{BASE_URL}/dashboard.png",
                 "message": "OK",

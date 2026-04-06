@@ -41,7 +41,7 @@ Important settings:
 
 - `CITY` changes the displayed city name and selects the location whose data is cached under that city key.
 - `CITY_LAT` and `CITY_LON` are the coordinates used for Open-Meteo and Buienradar. They must describe the same place as `CITY`.
-- `API_KEY` and `BASE_URL` are required for normal operation.
+- `BASE_URL` is required for normal operation.
 
 `CITY` supports these formats when you need to disambiguate the location:
 

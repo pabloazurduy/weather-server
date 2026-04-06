@@ -5,10 +5,9 @@
 
 Weather dashboard project for an e-ink display. The repo contains a Python server that renders weather images and an Arduino sketch for the display device that downloads and shows them.
 
-<!-- markdownlint-disable MD033 MD045 -->
-<img src="example-edisplay.JPG" alt="Photo of the e-ink display hardware" style="max-height: 350px;" />
-<img src="example_dashboard.png" alt="Rendered weather dashboard example" style="max-height: 350px;" />
-<!-- markdownlint-enable MD033 MD045 -->
+<img src="example-edisplay.JPG" style="max-height: 350px;" />
+<img src="example_dashboard.png" style="max-height: 350px;" />
+
 
 ## Repository layout
 
@@ -42,7 +41,7 @@ Key configuration lives in `flask-server/local_settings.py` or `WEATHER_*` envir
 
 - `CITY` is used as the displayed city label and as the cache key for that location.
 - `CITY_LAT` and `CITY_LON` are used for Open-Meteo and Buienradar and must match the same place as `CITY`.
-- `API_KEY` and `BASE_URL` are required for normal operation.
+- `BASE_URL` is required for normal operation.
 
 `CITY` supports these formats when you want to disambiguate a place name:
 
@@ -113,9 +112,8 @@ Run with Docker:
 docker build -t weather-dashboard .
 docker run -p 8080:8080 \
    -e WEATHER_CITY=Amsterdam,NL \
-   -e WEATHER_CITY_LAT=52.370216 \
-   -e WEATHER_CITY_LON=4.895168 \
-   -e WEATHER_API_KEY=your-device-api-key \
+   -e WEATHER_CITY_LAT=50.1 \
+   -e WEATHER_CITY_LON=4.0 \
    -e WEATHER_BASE_URL=http://your-host:8080 \
    weather-dashboard
 ```
