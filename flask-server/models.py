@@ -21,6 +21,7 @@ class EndpointPolicy:
     source: str
     ttl: int | None
     table_name: str
+    per_city: bool = True
 
 
 DEFAULT_ENDPOINT_POLICIES = {
@@ -53,6 +54,7 @@ DEFAULT_ENDPOINT_POLICIES = {
         source="Device sensor",
         ttl=None,
         table_name="device_sensor",
+        per_city=False,
     ),
 }
 
@@ -76,9 +78,11 @@ class WeatherStore:
         self,
         db_path: Path | str = DEFAULT_DB_PATH,
         endpoint_policies: dict[str, EndpointPolicy] | None = None,
+        default_city: str = "Amsterdam",
     ):
         self.db_path = Path(db_path)
         self.endpoint_policies = dict(endpoint_policies or DEFAULT_ENDPOINT_POLICIES)
+        self.default_city = self._clean_city_name(default_city)
         self._db_lock = threading.Lock()
         self._db_initialized = False
 
@@ -89,6 +93,23 @@ class WeatherStore:
 
     def _policy(self, endpoint_key: str) -> EndpointPolicy:
         return self.endpoint_policies[endpoint_key]
+
+    @staticmethod
+    def _clean_city_name(city: str) -> str:
+        cleaned = " ".join(str(city).split())
+        if not cleaned:
+            raise ValueError("City must not be empty")
+        return cleaned
+
+    def _city_name(self, city: str | None = None) -> str:
+        return self._clean_city_name(self.default_city if city is None else city)
+
+    def _city_key(self, city: str | None = None) -> str:
+        return self._city_name(city).casefold()
+
+    @staticmethod
+    def _sql_string_literal(value: str) -> str:
+        return "'" + value.replace("'", "''") + "'"
 
     @staticmethod
     def _safe_identifier(name: str) -> str:
@@ -108,32 +129,96 @@ class WeatherStore:
         ).fetchone()
         return row is not None
 
+    def _table_columns(self, conn: sqlite3.Connection, table_name: str) -> set[str]:
+        safe_table_name = self._safe_identifier(table_name)
+        rows = conn.execute(f'PRAGMA table_info("{safe_table_name}")').fetchall()
+        return {row["name"] for row in rows}
+
+    def _ensure_table_schema(self, conn: sqlite3.Connection, endpoint_key: str):
+        policy = self._policy(endpoint_key)
+        if not policy.per_city:
+            return
+
+        table_name = self._safe_identifier(policy.table_name)
+        columns = self._table_columns(conn, table_name)
+        if "city" not in columns:
+            conn.execute(
+                f'''
+                ALTER TABLE "{table_name}"
+                ADD COLUMN city TEXT NOT NULL DEFAULT {self._sql_string_literal(self._city_key())}
+                '''
+            )
+
+        conn.execute(
+            f'''
+            UPDATE "{table_name}"
+            SET city = ?
+            WHERE city IS NULL OR TRIM(city) = ''
+            ''',
+            (self._city_key(),),
+        )
+
+    def _create_table_indexes(self, conn: sqlite3.Connection, endpoint_key: str):
+        policy = self._policy(endpoint_key)
+        table_name = self._safe_identifier(policy.table_name)
+        if policy.per_city:
+            conn.execute(
+                f'''
+                CREATE INDEX IF NOT EXISTS "idx_{table_name}_city_success_time"
+                ON "{table_name}"(city, success, fetched_at DESC)
+                '''
+            )
+            conn.execute(
+                f'''
+                CREATE INDEX IF NOT EXISTS "idx_{table_name}_city_time"
+                ON "{table_name}"(city, fetched_at DESC)
+                '''
+            )
+            return
+
+        conn.execute(
+            f'''
+            CREATE INDEX IF NOT EXISTS "idx_{table_name}_success_time"
+            ON "{table_name}"(success, fetched_at DESC)
+            '''
+        )
+        conn.execute(
+            f'''
+            CREATE INDEX IF NOT EXISTS "idx_{table_name}_time"
+            ON "{table_name}"(fetched_at DESC)
+            '''
+        )
+
     def _create_source_tables(self, conn: sqlite3.Connection):
-        for policy in self.endpoint_policies.values():
+        for endpoint_key, policy in self.endpoint_policies.items():
             table_name = self._safe_identifier(policy.table_name)
-            conn.execute(
-                f"""
-                CREATE TABLE IF NOT EXISTS \"{table_name}\" (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    fetched_at INTEGER NOT NULL,
-                    success INTEGER NOT NULL,
-                    payload_json TEXT,
-                    error_text TEXT
+            if policy.per_city:
+                conn.execute(
+                    f"""
+                    CREATE TABLE IF NOT EXISTS \"{table_name}\" (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        city TEXT NOT NULL,
+                        fetched_at INTEGER NOT NULL,
+                        success INTEGER NOT NULL,
+                        payload_json TEXT,
+                        error_text TEXT
+                    )
+                    """
                 )
-                """
-            )
-            conn.execute(
-                f"""
-                CREATE INDEX IF NOT EXISTS \"idx_{table_name}_success_time\"
-                ON \"{table_name}\"(success, fetched_at DESC)
-                """
-            )
-            conn.execute(
-                f"""
-                CREATE INDEX IF NOT EXISTS \"idx_{table_name}_time\"
-                ON \"{table_name}\"(fetched_at DESC)
-                """
-            )
+            else:
+                conn.execute(
+                    f"""
+                    CREATE TABLE IF NOT EXISTS \"{table_name}\" (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        fetched_at INTEGER NOT NULL,
+                        success INTEGER NOT NULL,
+                        payload_json TEXT,
+                        error_text TEXT
+                    )
+                    """
+                )
+            self._ensure_table_schema(conn, endpoint_key)
+            self._create_table_indexes(conn, endpoint_key)
 
     def _migrate_legacy_source_history(self, conn: sqlite3.Connection):
         if not self._table_exists(conn, "source_history"):
@@ -151,19 +236,36 @@ class WeatherStore:
             endpoint_key = row["endpoint_key"]
             if endpoint_key not in self.endpoint_policies:
                 continue
-            conn.execute(
-                f"""
-                INSERT INTO {self._table_sql(endpoint_key)} (
-                    fetched_at, success, payload_json, error_text
-                ) VALUES (?, ?, ?, ?)
-                """,
-                (
-                    int(row["fetched_at"]),
-                    int(row["success"]),
-                    row["payload_json"],
-                    row["error_text"],
-                ),
-            )
+            policy = self._policy(endpoint_key)
+            if policy.per_city:
+                conn.execute(
+                    f"""
+                    INSERT INTO {self._table_sql(endpoint_key)} (
+                        city, fetched_at, success, payload_json, error_text
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        self._city_key(),
+                        int(row["fetched_at"]),
+                        int(row["success"]),
+                        row["payload_json"],
+                        row["error_text"],
+                    ),
+                )
+            else:
+                conn.execute(
+                    f"""
+                    INSERT INTO {self._table_sql(endpoint_key)} (
+                        fetched_at, success, payload_json, error_text
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        int(row["fetched_at"]),
+                        int(row["success"]),
+                        row["payload_json"],
+                        row["error_text"],
+                    ),
+                )
 
         conn.execute("DROP TABLE source_history")
 
@@ -188,40 +290,71 @@ class WeatherStore:
         success: bool = True,
         error_text: str | None = None,
         fetched_at: int | None = None,
+        city: str | None = None,
     ):
         self.init_db()
         if fetched_at is None:
             fetched_at = int(time.time())
         payload_json = json.dumps(payload) if payload is not None else None
+        policy = self._policy(endpoint_key)
         with self._db_lock:
             with self._open_db() as conn:
-                conn.execute(
-                    f"""
-                    INSERT INTO {self._table_sql(endpoint_key)} (
-                        fetched_at, success, payload_json, error_text
-                    ) VALUES (?, ?, ?, ?)
-                    """,
-                    (
-                        int(fetched_at),
-                        1 if success else 0,
-                        payload_json,
-                        error_text,
-                    ),
-                )
+                if policy.per_city:
+                    conn.execute(
+                        f"""
+                        INSERT INTO {self._table_sql(endpoint_key)} (
+                            city, fetched_at, success, payload_json, error_text
+                        ) VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (
+                            self._city_key(city),
+                            int(fetched_at),
+                            1 if success else 0,
+                            payload_json,
+                            error_text,
+                        ),
+                    )
+                else:
+                    conn.execute(
+                        f"""
+                        INSERT INTO {self._table_sql(endpoint_key)} (
+                            fetched_at, success, payload_json, error_text
+                        ) VALUES (?, ?, ?, ?)
+                        """,
+                        (
+                            int(fetched_at),
+                            1 if success else 0,
+                            payload_json,
+                            error_text,
+                        ),
+                    )
 
-    def latest_snapshot(self, endpoint_key: str, success_only: bool = True):
+    def latest_snapshot(
+        self,
+        endpoint_key: str,
+        success_only: bool = True,
+        city: str | None = None,
+    ):
         self.init_db()
+        policy = self._policy(endpoint_key)
         query = (
             "SELECT fetched_at, success, payload_json, error_text "
             f"FROM {self._table_sql(endpoint_key)}"
         )
+        clauses = []
+        params = []
+        if policy.per_city:
+            clauses.append("city = ?")
+            params.append(self._city_key(city))
         if success_only:
-            query += " WHERE success = 1"
+            clauses.append("success = 1")
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
         query += " ORDER BY fetched_at DESC, id DESC LIMIT 1"
 
         with self._db_lock:
             with self._open_db() as conn:
-                row = conn.execute(query).fetchone()
+                row = conn.execute(query, params).fetchone()
 
         if row is None:
             return None
@@ -237,9 +370,15 @@ class WeatherStore:
             "error_text": row["error_text"],
         }
 
-    def fetch_with_history(self, endpoint_key: str, fetcher, force: bool = False):
+    def fetch_with_history(
+        self,
+        endpoint_key: str,
+        fetcher,
+        force: bool = False,
+        city: str | None = None,
+    ):
         policy = self._policy(endpoint_key)
-        latest = self.latest_snapshot(endpoint_key)
+        latest = self.latest_snapshot(endpoint_key, city=city)
         now = int(time.time())
 
         if (
@@ -257,6 +396,7 @@ class WeatherStore:
                 payload,
                 success=True,
                 fetched_at=now,
+                city=city,
             )
             return payload
         except Exception as exc:
@@ -266,6 +406,7 @@ class WeatherStore:
                 success=False,
                 error_text=str(exc),
                 fetched_at=now,
+                city=city,
             )
             if latest is not None and latest["payload"] is not None:
                 print(
@@ -299,10 +440,10 @@ class WeatherStore:
         payload["ts"] = latest["fetched_at"]
         return payload
 
-    def source_refresh_times(self) -> dict[str, int]:
+    def source_refresh_times(self, city: str | None = None) -> dict[str, int]:
         refresh_times: dict[str, int] = {}
         for endpoint_key, policy in self.endpoint_policies.items():
-            latest = self.latest_snapshot(endpoint_key)
+            latest = self.latest_snapshot(endpoint_key, city=city)
             if latest is None:
                 continue
             refresh_times[policy.source] = max(
@@ -320,17 +461,17 @@ class WeatherStore:
             return f"{hours:.1f}h"
         return f"{hours:.0f}h"
 
-    def source_status_line(self) -> str:
-        refresh_times = self.source_refresh_times()
+    def source_status_line(self, city: str | None = None) -> str:
+        refresh_times = self.source_refresh_times(city=city)
         parts = []
         for source in SOURCE_FOOTER_ORDER:
             label = SOURCE_FOOTER_LABELS.get(source, source)
             parts.append(f"{label} {self.format_source_age(refresh_times.get(source))}")
         return "  |  ".join(parts)
 
-    def _refresh_status(self, endpoint_key: str) -> dict:
-        latest_attempt = self.latest_snapshot(endpoint_key, success_only=False)
-        latest_success = self.latest_snapshot(endpoint_key)
+    def _refresh_status(self, endpoint_key: str, city: str | None = None) -> dict:
+        latest_attempt = self.latest_snapshot(endpoint_key, success_only=False, city=city)
+        latest_success = self.latest_snapshot(endpoint_key, city=city)
         attempt_ok = bool(latest_attempt and latest_attempt["success"])
 
         return {
@@ -361,22 +502,48 @@ class WeatherStore:
         force: bool = False,
         forecast_count: int = 16,
         daily_days: int = 7,
+        city: str | None = None,
     ) -> dict:
         snapshots = [
-            ("owm_current_ams", lambda: self.owm_current(lat, lon, owm_key, force=force)),
+            (
+                "owm_current_ams",
+                lambda: self.owm_current(lat, lon, owm_key, force=force, city=city),
+            ),
             (
                 "owm_forecast_ams",
-                lambda: self.owm_forecast(lat, lon, owm_key, cnt=forecast_count, force=force),
+                lambda: self.owm_forecast(
+                    lat,
+                    lon,
+                    owm_key,
+                    cnt=forecast_count,
+                    force=force,
+                    city=city,
+                ),
             ),
             (
                 "openmeteo_daily_ams",
-                lambda: self.ams_daily_forecast(lat, lon, days=daily_days, force=force),
+                lambda: self.ams_daily_forecast(
+                    lat,
+                    lon,
+                    days=daily_days,
+                    force=force,
+                    city=city,
+                ),
             ),
             (
                 "openmeteo_hourly_ams",
-                lambda: self.ams_hourly_forecast(lat, lon, hours=24, force=force),
+                lambda: self.ams_hourly_forecast(
+                    lat,
+                    lon,
+                    hours=24,
+                    force=force,
+                    city=city,
+                ),
             ),
-            ("buienradar_rain_ams", lambda: self.buienradar(lat, lon, force=force)),
+            (
+                "buienradar_rain_ams",
+                lambda: self.buienradar(lat, lon, force=force, city=city),
+            ),
         ]
         sources = {}
         ok = True
@@ -384,13 +551,13 @@ class WeatherStore:
         for endpoint_key, loader in snapshots:
             try:
                 loader()
-                status = self._refresh_status(endpoint_key)
+                status = self._refresh_status(endpoint_key, city=city)
                 if not status["ok"]:
                     ok = False
                 sources[endpoint_key] = status
             except Exception as exc:
                 ok = False
-                latest_success = self.latest_snapshot(endpoint_key)
+                latest_success = self.latest_snapshot(endpoint_key, city=city)
                 sources[endpoint_key] = {
                     "ok": False,
                     "source": self._policy(endpoint_key).source,
@@ -424,17 +591,22 @@ class WeatherStore:
         lon: float,
         api_key: str,
         force: bool = False,
+        city: str | None = None,
     ) -> dict:
         def fetch():
-            url = (
-                "https://api.openweathermap.org/data/2.5/weather"
-                f"?lat={lat}&lon={lon}&appid={api_key}&units=metric"
+            response = requests.get(
+                "https://api.openweathermap.org/data/2.5/weather",
+                params={
+                    "q": self._city_name(city),
+                    "appid": api_key,
+                    "units": "metric",
+                },
+                timeout=6,
             )
-            response = requests.get(url, timeout=6)
             response.raise_for_status()
             return response.json()
 
-        return self.fetch_with_history("owm_current_ams", fetch, force=force)
+        return self.fetch_with_history("owm_current_ams", fetch, force=force, city=city)
 
     def owm_forecast(
         self,
@@ -443,17 +615,23 @@ class WeatherStore:
         api_key: str,
         cnt: int = 16,
         force: bool = False,
+        city: str | None = None,
     ) -> list:
         def fetch():
-            url = (
-                "https://api.openweathermap.org/data/2.5/forecast"
-                f"?lat={lat}&lon={lon}&appid={api_key}&units=metric&cnt={cnt}"
+            response = requests.get(
+                "https://api.openweathermap.org/data/2.5/forecast",
+                params={
+                    "q": self._city_name(city),
+                    "appid": api_key,
+                    "units": "metric",
+                    "cnt": cnt,
+                },
+                timeout=6,
             )
-            response = requests.get(url, timeout=6)
             response.raise_for_status()
             return response.json()["list"]
 
-        return self.fetch_with_history("owm_forecast_ams", fetch, force=force)
+        return self.fetch_with_history("owm_forecast_ams", fetch, force=force, city=city)
 
     def ams_daily_forecast(
         self,
@@ -461,6 +639,7 @@ class WeatherStore:
         lon: float,
         days: int = 7,
         force: bool = False,
+        city: str | None = None,
     ) -> list:
         def fetch():
             url = (
@@ -491,7 +670,12 @@ class WeatherStore:
                 )
             return out
 
-        return self.fetch_with_history("openmeteo_daily_ams", fetch, force=force)
+        return self.fetch_with_history(
+            "openmeteo_daily_ams",
+            fetch,
+            force=force,
+            city=city,
+        )
 
     def ams_hourly_forecast(
         self,
@@ -499,6 +683,7 @@ class WeatherStore:
         lon: float,
         hours: int = 24,
         force: bool = False,
+        city: str | None = None,
     ) -> list:
         def fetch():
             url = (
@@ -532,13 +717,19 @@ class WeatherStore:
                 return filtered
             return out[-max(hours + 6, 12):]
 
-        return self.fetch_with_history("openmeteo_hourly_ams", fetch, force=force)
+        return self.fetch_with_history(
+            "openmeteo_hourly_ams",
+            fetch,
+            force=force,
+            city=city,
+        )
 
     def buienradar(
         self,
         lat: float,
         lon: float,
         force: bool = False,
+        city: str | None = None,
     ) -> list:
         def fetch():
             url = f"https://gadgets.buienradar.nl/data/raintext/?lat={lat}&lon={lon}"
@@ -554,7 +745,12 @@ class WeatherStore:
                 out.append({"time": value_time.strip(), "value": value, "mmh": mmh})
             return out
 
-        return self.fetch_with_history("buienradar_rain_ams", fetch, force=force)
+        return self.fetch_with_history(
+            "buienradar_rain_ams",
+            fetch,
+            force=force,
+            city=city,
+        )
 
     def get_rain_forecast(
         self,
@@ -563,11 +759,18 @@ class WeatherStore:
         hours: int = 12,
         detailed_hours: int = 3,
         force: bool = False,
+        city: str | None = None,
     ) -> dict:
         buienradar_points = self._buienradar_points_with_timestamps(
-            self.buienradar(lat, lon, force=force)
+            self.buienradar(lat, lon, force=force, city=city)
         )
-        hourly_forecast = self.ams_hourly_forecast(lat, lon, hours=hours + 6, force=force)
+        hourly_forecast = self.ams_hourly_forecast(
+            lat,
+            lon,
+            hours=hours + 6,
+            force=force,
+            city=city,
+        )
 
         start_ts = (
             buienradar_points[0]["ts"]
@@ -630,8 +833,15 @@ class WeatherStore:
         start_ts: int,
         hours: int = 12,
         force: bool = False,
+        city: str | None = None,
     ) -> list:
-        hourly_forecast = self.ams_hourly_forecast(lat, lon, hours=hours + 6, force=force)
+        hourly_forecast = self.ams_hourly_forecast(
+            lat,
+            lon,
+            hours=hours + 6,
+            force=force,
+            city=city,
+        )
         points = []
         for offset in range(hours + 1):
             point_ts = start_ts + offset * 3600

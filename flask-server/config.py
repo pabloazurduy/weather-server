@@ -19,27 +19,44 @@ def _local_value(name: str):
     return getattr(_local_settings, name, None)
 
 
-def _setting(name: str, default, cast):
-    value = os.getenv(f"WEATHER_{name}")
-    if value is None:
+def _setting_value(names: str | tuple[str, ...]):
+    if isinstance(names, str):
+        names = (names,)
+
+    for name in names:
+        value = os.getenv(f"WEATHER_{name}")
+        if value is not None:
+            return value
+
+    for name in names:
         value = _local_value(name)
+        if value is not None:
+            return value
+
+    return None
+
+
+def _setting(name: str | tuple[str, ...], default, cast):
+    value = _setting_value(name)
     if value is None:
         return default
     return cast(value)
 
 
-def _structured_setting(name: str, default):
-    value = os.getenv(f"WEATHER_{name}")
-    if value is not None:
+def _structured_setting(name: str | tuple[str, ...], default):
+    value = _setting_value(name)
+    if isinstance(value, str):
         return json.loads(value)
-    value = _local_value(name)
     if value is None:
         return default
     return value
 
 
-AMS_LAT = _setting("AMS_LAT", None, float)
-AMS_LON = _setting("AMS_LON", None, float)
+CITY_LAT = _setting(("CITY_LAT", "AMS_LAT"), None, float)
+CITY_LON = _setting(("CITY_LON", "AMS_LON"), None, float)
+AMS_LAT = CITY_LAT
+AMS_LON = CITY_LON
+CITY = _setting("CITY", "Amsterdam", str)
 WIDTH = _setting("WIDTH", 800, int)
 HEIGHT = _setting("HEIGHT", 480, int)
 REFRESH_RATE = _setting("REFRESH_RATE", 900, int)

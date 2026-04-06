@@ -25,8 +25,6 @@ import requests
 from PIL import Image, ImageDraw, ImageFont
 
 from config import (
-    AMS_LAT,
-    AMS_LON,
     API_KEY,
     BASE_URL,
     BIND_HOST,
@@ -34,6 +32,9 @@ from config import (
     CHARACTER_ASSET_ROOT,
     CHARACTER_NAME,
     CHARACTER_RULES,
+    CITY,
+    CITY_LAT,
+    CITY_LON,
     DB_PATH,
     HEIGHT,
     OWM_KEY,
@@ -42,7 +43,7 @@ from config import (
 )
 from models import WeatherStore
 
-weather_store = WeatherStore(DB_PATH)
+weather_store = WeatherStore(DB_PATH, default_city=CITY)
 
 # Cache rendered PNGs so repeated polls do not redraw the same image.
 _cache: dict = {"png": None, "ts": 0}
@@ -54,12 +55,12 @@ _indoor: dict = {"temp": None, "humidity": None, "battery_voltage": None, "ts": 
 _character_icon_cache: dict[str, Image.Image] = {}
 
 
-def _configured_location() -> tuple[float, float]:
-    if AMS_LAT is None or AMS_LON is None:
+def _configured_location() -> tuple[str, float, float]:
+    if CITY_LAT is None or CITY_LON is None:
         raise RuntimeError(
-            "Set WEATHER_AMS_LAT and WEATHER_AMS_LON or define AMS_LAT and AMS_LON in flask-server/local_settings.py"
+            "Set WEATHER_CITY_LAT and WEATHER_CITY_LON or define CITY_LAT and CITY_LON in flask-server/local_settings.py"
         )
-    return AMS_LAT, AMS_LON
+    return CITY, CITY_LAT, CITY_LON
 
 
 def _character_icon_key(
@@ -498,7 +499,7 @@ def _draw_proportional_chart(
 # ── PNG generation ─────────────────────────────────────────────────────────────
 
 def generate_png(battery_voltage: float | None = None) -> bytes:
-    lat, lon = _configured_location()
+    city_name, lat, lon = _configured_location()
 
     # Fetch data
     ams = weather_store.owm_current(lat, lon, OWM_KEY)
@@ -532,10 +533,10 @@ def generate_png(battery_voltage: float | None = None) -> bytes:
 
     # Layout frame: column titles, timestamp, and divider lines.
     title_y = 10
-    _text(draw, (C1_X, title_y), "Amsterdam", 18, bold=True)
-    amsterdam_title_box = draw.textbbox((C1_X, title_y), "Amsterdam",
-                                        font=_font(18, True), anchor="la")
-    _text(draw, (C3_X, 10), "Amsterdam 7-Day", 16, bold=True)
+    _text(draw, (C1_X, title_y), city_name, 18, bold=True)
+    city_title_box = draw.textbbox((C1_X, title_y), city_name,
+                                   font=_font(18, True), anchor="la")
+    _text(draw, (C3_X, 10), f"{city_name} 7-Day", 16, bold=True)
     _text(draw, (WIDTH - 16, 10),
           now_ams.strftime("%b %-d  %-I:%M %p"), 13, anchor="ra")
 
@@ -554,14 +555,14 @@ def generate_png(battery_voltage: float | None = None) -> bytes:
     ams_gust = ams["wind"].get("gust", 0)
     ams_kind = _weather_kind_from_owm(ams["weather"][0])
     ams_header_icon_size = 20
-    ams_header_icon_x = amsterdam_title_box[2] + 8
+    ams_header_icon_x = city_title_box[2] + 8
     _draw_weather_icon(draw, ams_header_icon_x, 8, ams_kind, ams_header_icon_size)
     _text(draw, (ams_header_icon_x + 28, 12), now_ams.strftime("%A %B %-d"), 11)
     today_rain_prob = daily[0].get("rain_prob") if daily else None
     today_min = daily[0].get("temp_min") if daily else None
     today_max = daily[0].get("temp_max") if daily else None
 
-    # Left column: current Amsterdam conditions.
+    # Left column: current configured-city conditions.
     ams_temp_text = f"{ams_temp:.0f}°C"
     _text(draw, (C1_X, 44), ams_temp_text, 46, bold=True)
     left_detail_y = 96
@@ -619,7 +620,7 @@ def generate_png(battery_voltage: float | None = None) -> bytes:
         ams_wind,
     )
 
-    # Right column: 7-day Amsterdam forecast.
+    # Right column: 7-day configured-city forecast.
     _draw_daily_forecast(draw, (C3_X, 44, WIDTH - 16, HEIGHT - 42), daily)
 
     # Bottom-left panel: rain bars and temperature line chart.
@@ -763,7 +764,7 @@ class Handler(BaseHTTPRequestHandler):
 
         elif parsed.path == "/force-refresh-sources":
             try:
-                lat, lon = _configured_location()
+                _, lat, lon = _configured_location()
                 result = weather_store.refresh_all_sources(
                     lat,
                     lon,
