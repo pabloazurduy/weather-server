@@ -18,7 +18,7 @@ BIND_HOST = "0.0.0.0"
 BIND_PORT = 8080
 CHARACTER_NAME = "hedgehog"
 CHARACTER_RULES = {
-	"warm_temp_c": 16.0,
+	"warm_temp_c": 14.0,
 	"freezing_temp_c": 2.0,
 	"windy_speed_mps": 10.0,
 	"rain_prob_percent": 35,
