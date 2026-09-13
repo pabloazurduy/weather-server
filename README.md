@@ -13,8 +13,8 @@ Weather dashboard project for an e-ink display. The repo contains a Python serve
 ## Repository layout
 
 - `flask-server/` Python HTTP server that fetches weather data, caches it in SQLite, renders the dashboard image, and exposes API endpoints for the display client.
-- `arduino/weather_display/` Arduino sketch for the reTerminal E1001. It reads the on-board SHT40 sensor, posts sensor data to the server, downloads `/dashboard.bin`, and deep-sleeps between refreshes.
-- `arduino/epaper_test/` Minimal e-paper hardware test sketch for the reTerminal E1001.
+- `arduino-reterminal/weather_display/` Arduino sketch for the reTerminal E1001. It reads the on-board SHT40 sensor, posts sensor data to the server, downloads `/dashboard.bin`, and deep-sleeps between refreshes.
+- `arduino-lilygo/battery_monitor/` Battery-monitor sketch for the LilyGO T5 display.
 - `Dockerfile` Container image definition for the Python server.
 
 ## Flask server
@@ -37,6 +37,11 @@ The server listens on port `8080` by default and exposes:
 - `GET /api/setup`
 - `GET /api/display`
 - `POST /sensor`
+
+The HTTP listener handles requests concurrently. Client sockets are closed after
+10 seconds without progress, and `/sensor` bodies are limited to 1 KiB. This
+keeps an interrupted upload from a browning-out display from blocking the whole
+server.
 
 Key configuration lives in `flask-server/local_settings.py` or `WEATHER_*` environment variables:
 
@@ -121,9 +126,26 @@ docker pull ghcr.io/pabloazurduy/weather-server:latest
 
 For the production display sketch:
 
-1. Copy `arduino/weather_display/secrets.example.h` to `arduino/weather_display/secrets.h`.
+1. Copy `arduino-reterminal/weather_display/secrets.example.h` to `arduino-reterminal/weather_display/secrets.h`.
 2. Fill in Wi-Fi credentials and the server host/port.
-3. Install the libraries referenced at the top of `arduino/weather_display/weather_display.ino`.
+3. Install the libraries referenced at the top of `arduino-reterminal/weather_display/weather_display.ino`.
 4. Build and flash from the Arduino IDE for `XIAO_ESP32S3` with PSRAM enabled.
 
-Use `arduino/epaper_test/epaper_test.ino` to verify the display wiring and driver before testing the full weather client.
+### reTerminal recovery and power protection
+
+An e-paper panel keeps its last image without power, so an unchanged screen does
+not by itself mean the board is frozen. Connect the carrier USB serial port at
+115200 baud to see each wake cycle and the exact Wi-Fi/HTTP error.
+
+The production sketch protects the device from the two most confusing failure
+modes:
+
+- All three top buttons (GPIO3, GPIO4, and GPIO5) are RTC wake sources with
+  pull-ups that remain enabled during deep sleep. Any button wakes and refreshes.
+- A Wi-Fi/server failure is shown once on the panel instead of silently leaving
+  a stale dashboard in place. The device continues retrying automatically.
+
+After a complete battery discharge, charge for a few minutes with the rear power
+switch on, then press any top button to wake and refresh it. If the protection
+circuit has completely powered it off, toggle the rear power switch off and on
+once before pressing a top button.

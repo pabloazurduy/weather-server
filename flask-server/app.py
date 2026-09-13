@@ -19,7 +19,7 @@ import math
 import threading
 import time
 from functools import lru_cache
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
@@ -50,6 +50,8 @@ weather_store = WeatherStore(DB_PATH, default_city=CITY)
 _cache: dict = {"png": None, "ts": 0}
 _cache_lock = threading.Lock()
 CACHE_TTL = 300  # regenerate image every 5 min
+REQUEST_TIMEOUT_SEC = 10
+MAX_SENSOR_BODY_BYTES = 1024
 
 # Latest in-process sensor values; the persistent source of truth is SQLite.
 _indoor: dict = {"temp": None, "humidity": None, "battery_voltage": None, "ts": None}
@@ -798,11 +800,33 @@ def get_png(battery_voltage: float | None = None) -> bytes:
 
 class Handler(BaseHTTPRequestHandler):
 
+    request_timeout_sec = REQUEST_TIMEOUT_SEC
+    max_sensor_body_bytes = MAX_SENSOR_BODY_BYTES
+
+    def setup(self):
+        super().setup()
+        # A battery brownout can disconnect the display halfway through a POST.
+        # Never leave a request thread waiting indefinitely for the missing bytes.
+        self.connection.settimeout(self.request_timeout_sec)
+
     def do_POST(self):
         parsed = urlparse(self.path)
         if parsed.path == "/sensor":
-            length = int(self.headers.get("Content-Length", 0))
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+            except ValueError:
+                self._respond(400, "application/json", b'{"error":"invalid Content-Length"}')
+                return
+            if length <= 0:
+                self._respond(400, "application/json", b'{"error":"empty request body"}')
+                return
+            if length > self.max_sensor_body_bytes:
+                self._respond(413, "application/json", b'{"error":"request body too large"}')
+                return
             body = self.rfile.read(length)
+            if len(body) != length:
+                self._respond(400, "application/json", b'{"error":"incomplete request body"}')
+                return
             try:
                 data = json.loads(body)
                 _indoor["temp"] = float(data["temp"])
@@ -953,6 +977,12 @@ class Handler(BaseHTTPRequestHandler):
         print(f"[{self.address_string()}] {format % args}")
 
 
+def create_server(host=BIND_HOST, port=BIND_PORT, handler_class=Handler):
+    # One interrupted display request must not block health checks or other
+    # clients while its socket timeout is being enforced.
+    return ThreadingHTTPServer((host, port), handler_class)
+
+
 if __name__ == "__main__":
     weather_store.init_db()
     print("Warming up cache...")
@@ -962,8 +992,7 @@ if __name__ == "__main__":
     except Exception as exc:
         print(f"Startup warning: {exc}")
 
-    server = HTTPServer((BIND_HOST, BIND_PORT), Handler)
+    server = create_server()
     print(f"Weather dashboard running on http://{BIND_HOST}:{BIND_PORT}")
     print(f"  Dashboard PNG: {BASE_URL}/dashboard.png")
     server.serve_forever()
-

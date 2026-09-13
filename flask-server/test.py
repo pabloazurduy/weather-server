@@ -2,9 +2,13 @@
 from __future__ import annotations
 
 import datetime
+import http.client
 import json
+import socket
 import sqlite3
 import tempfile
+import threading
+import time
 import unittest
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -469,6 +473,69 @@ class WeatherStoreTests(unittest.TestCase):
         )
 
         self.assertEqual(icon_key, "freezing_windy")
+
+
+class HTTPServerResilienceTests(unittest.TestCase):
+    @contextmanager
+    def _running_server(self, handler_class=app.Handler):
+        server = app.create_server("127.0.0.1", 0, handler_class)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            yield server.server_address
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+    def test_incomplete_sensor_post_does_not_block_health_check(self):
+        class FastTimeoutHandler(app.Handler):
+            request_timeout_sec = 0.5
+
+            def log_message(self, format, *args):
+                pass
+
+        with self._running_server(FastTimeoutHandler) as address:
+            partial_post = socket.create_connection(address, timeout=1)
+            self.addCleanup(partial_post.close)
+            partial_post.sendall(
+                b"POST /sensor HTTP/1.1\r\n"
+                b"Host: localhost\r\n"
+                b"Content-Type: application/json\r\n"
+                b"Content-Length: 100\r\n"
+                b"\r\n"
+                b'{"temp":'
+            )
+            time.sleep(0.05)
+
+            connection = http.client.HTTPConnection(*address, timeout=0.25)
+            connection.request("GET", "/up")
+            response = connection.getresponse()
+            body = response.read()
+            connection.close()
+
+            self.assertEqual(response.status, 200)
+            self.assertEqual(json.loads(body), {"status": "ok"})
+
+            partial_post.settimeout(1)
+            self.assertEqual(partial_post.recv(1), b"")
+
+    def test_sensor_post_rejects_oversized_body(self):
+        class SmallBodyHandler(app.Handler):
+            max_sensor_body_bytes = 16
+
+            def log_message(self, format, *args):
+                pass
+
+        with self._running_server(SmallBodyHandler) as address:
+            connection = http.client.HTTPConnection(*address, timeout=1)
+            connection.request("POST", "/sensor", body=b"x" * 17)
+            response = connection.getresponse()
+            body = response.read()
+            connection.close()
+
+            self.assertEqual(response.status, 413)
+            self.assertEqual(json.loads(body), {"error": "request body too large"})
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@
  * Libraries (install before compiling):
  *   - GxEPD2      https://github.com/ZinggJM/GxEPD2  (ZIP install)
  *   - Adafruit GFX  (Library Manager)
+ *   - Sensirion I2C SHT4x and Sensirion Core  (Library Manager)
  *
  * Board settings:
  *   Board:        XIAO_ESP32S3
@@ -26,6 +27,8 @@
 #include <SPI.h>
 #include <GxEPD2_BW.h>
 #include <Fonts/FreeMonoBold9pt7b.h>
+#include <esp_sleep.h>
+#include <driver/rtc_io.h>
 #include "secrets.h"
 
 // ── Server ──────────────────────────────────────────────────────────────────
@@ -46,7 +49,12 @@
 #define BAT_EN_PIN    21
 #define BAT_ADC_PIN   1    // GPIO1 - Battery voltage ADC (via 1:2 divider)
 
-#define BUTTON_KEY0   3    // Green button (active-low) — used for manual refresh
+#define BUTTON_KEY0   3    // Right / green button (active-low)
+#define BUTTON_KEY1   4    // Middle button (active-low)
+#define BUTTON_KEY2   5    // Left button (active-low)
+#define BUTTON_WAKE_MASK ((1ULL << BUTTON_KEY0) | \
+                          (1ULL << BUTTON_KEY1) | \
+                          (1ULL << BUTTON_KEY2))
 
 #define I2C_SDA       19   // SHT40 data
 #define I2C_SCL       20   // SHT40 clock
@@ -65,6 +73,15 @@ GxEPD2_BW<GxEPD2_750_GDEY075T7, MAX_HEIGHT(GxEPD2_750_GDEY075T7)>
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 static const uint32_t BITMAP_BYTES = 800UL * 480UL / 8UL;  // 48000
+
+enum StatusScreen : uint8_t {
+  STATUS_DASHBOARD = 0,
+  STATUS_NETWORK_ERROR,
+};
+
+// RTC memory survives deep sleep, so identical error screens are not redrawn
+// every cycle. It is reset naturally after a complete battery discharge.
+RTC_DATA_ATTR static uint8_t shown_status = STATUS_DASHBOARD;
 
 // ── Battery ───────────────────────────────────────────────────────────────────
 float readBattery() {
@@ -92,7 +109,7 @@ void initDisplay() {
   display.init(0, true);
 }
 
-void showError(const char* msg) {
+void showStatus(const char* msg, float batt_v, uint64_t retry_sec) {
   Serial1.printf("[ERROR] %s\n", msg);
   display.setRotation(0);
   display.setFullWindow();
@@ -106,8 +123,19 @@ void showError(const char* msg) {
     display.setCursor(20, 70);
     display.print(msg);
     display.setCursor(20, 100);
-    display.printf("Retry in %llu min", SLEEP_SEC / 60);
+    display.printf("Battery: %.2f V", batt_v);
+    display.setCursor(20, 130);
+    display.printf("Automatic retry in %llu min", retry_sec / 60);
   } while (display.nextPage());
+}
+
+void showStatusOnce(StatusScreen status, const char* msg,
+                    float batt_v, uint64_t retry_sec) {
+  if (shown_status == status) return;
+  initDisplay();
+  showStatus(msg, batt_v, retry_sec);
+  display.hibernate();
+  shown_status = status;
 }
 
 void drawBitmap(const uint8_t* bitmap) {
@@ -147,7 +175,12 @@ void pushSensorData(float temp, float hum, float batt_v) {
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
   int code = http.POST(body);
-  Serial1.printf("POST /sensor: %d\n", code);
+  if (code < 0) {
+    Serial1.printf("POST /sensor: %d (%s)\n", code,
+                   HTTPClient::errorToString(code).c_str());
+  } else {
+    Serial1.printf("POST /sensor: %d\n", code);
+  }
   http.end();
 }
 
@@ -179,7 +212,12 @@ void triggerRefresh() {
   http.begin(url);
   http.setTimeout(10000);
   int code = http.GET();
-  Serial1.printf("Refresh response: %d\n", code);
+  if (code < 0) {
+    Serial1.printf("Refresh response: %d (%s)\n", code,
+                   HTTPClient::errorToString(code).c_str());
+  } else {
+    Serial1.printf("Refresh response: %d\n", code);
+  }
   http.end();
 }
 
@@ -197,13 +235,14 @@ bool downloadBitmap(uint8_t* buf, float batt_v) {
   int code = http.GET();
 
   if (code != HTTP_CODE_OK) {
-    Serial1.printf("HTTP error: %d\n", code);
+    Serial1.printf("HTTP error: %d (%s)\n", code,
+                   HTTPClient::errorToString(code).c_str());
     http.end();
     return false;
   }
 
   int contentLen = http.getSize();
-  Serial1.printf("Content-Length: %d (expected %lu)\n", contentLen, BITMAP_BYTES);
+  Serial1.printf("Content-Length: %d (expected %u)\n", contentLen, BITMAP_BYTES);
 
   WiFiClient* stream = http.getStreamPtr();
 
@@ -223,11 +262,11 @@ bool downloadBitmap(uint8_t* buf, float batt_v) {
   http.end();
 
   if (received < BITMAP_BYTES) {
-    Serial1.printf("Short read: %lu / %lu bytes\n", received, BITMAP_BYTES);
+    Serial1.printf("Short read: %u / %u bytes\n", received, BITMAP_BYTES);
     return false;
   }
 
-  Serial1.printf("Downloaded %lu bytes OK\n", received);
+  Serial1.printf("Downloaded %u bytes OK\n", received);
   return true;
 }
 
@@ -237,6 +276,19 @@ void setup() {
   delay(300);
   Serial1.println("\n=== Weather Display boot ===");
 
+  const esp_sleep_wakeup_cause_t wake_cause = esp_sleep_get_wakeup_cause();
+  const bool button_wakeup = wake_cause == ESP_SLEEP_WAKEUP_EXT1;
+  if (button_wakeup) {
+    Serial1.printf("Button wakeup mask: 0x%llx\n",
+                   esp_sleep_get_ext1_wakeup_status());
+  }
+
+  // All three buttons can wake the board. RTC pull-ups are configured again
+  // immediately before sleep because ordinary GPIO pulls turn off in deep sleep.
+  pinMode(BUTTON_KEY0, INPUT_PULLUP);
+  pinMode(BUTTON_KEY1, INPUT_PULLUP);
+  pinMode(BUTTON_KEY2, INPUT_PULLUP);
+
   // Deselect SD card early — must happen before any SPI activity
   pinMode(SD_CS_PIN, OUTPUT);  digitalWrite(SD_CS_PIN, HIGH);
   pinMode(SD_EN_PIN, OUTPUT);  digitalWrite(SD_EN_PIN, HIGH);
@@ -245,8 +297,10 @@ void setup() {
   float batt_v = readBattery();
   Serial1.printf("Battery: %.2f V\n", batt_v);
 
+  uint8_t* bitmap = nullptr;
+
   // Allocate bitmap buffer in PSRAM
-  uint8_t* bitmap = (uint8_t*) ps_malloc(BITMAP_BYTES);
+  bitmap = (uint8_t*) ps_malloc(BITMAP_BYTES);
   if (!bitmap) {
     Serial1.println("ps_malloc failed — falling back to heap");
     bitmap = (uint8_t*) malloc(BITMAP_BYTES);
@@ -262,6 +316,7 @@ void setup() {
   if (!connectWiFi()) {
     Serial1.println("WiFi failed — sleeping");
     free(bitmap);
+    showStatusOnce(STATUS_NETWORK_ERROR, "WiFi unavailable", batt_v, SLEEP_SEC);
     goto sleep;
   }
 
@@ -274,9 +329,9 @@ void setup() {
     }
   }
 
-  // If woken by the green button, ask the server to regenerate with fresh
+  // If woken by any top button, ask the server to regenerate with fresh
   // weather data (sensor data was already pushed above).
-  if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0) {
+  if (button_wakeup) {
     Serial1.println("Button wakeup — requesting server refresh");
     triggerRefresh();
   }
@@ -286,6 +341,8 @@ void setup() {
     free(bitmap);
     WiFi.disconnect(true);
     WiFi.mode(WIFI_OFF);
+    showStatusOnce(STATUS_NETWORK_ERROR, "Weather server unavailable",
+                   batt_v, SLEEP_SEC);
     goto sleep;
   }
 
@@ -298,6 +355,7 @@ void setup() {
 
   drawBitmap(bitmap);
   Serial1.println("Display updated.");
+  shown_status = STATUS_DASHBOARD;
 
   free(bitmap);
   display.hibernate();
@@ -305,9 +363,16 @@ void setup() {
 sleep:
   Serial1.printf("Sleeping %llu s...\n", SLEEP_SEC);
   Serial1.flush();
-  // Wake on timer OR green button press (GPIO3, active-low)
+  // Wake on timer or any of the three active-low buttons. Normal GPIO pull-ups
+  // are disabled during deep sleep, so keep these pins biased in the RTC domain.
   esp_sleep_enable_timer_wakeup(SLEEP_SEC * 1000000ULL);
-  esp_sleep_enable_ext0_wakeup((gpio_num_t)BUTTON_KEY0, 0);  // 0 = wake on LOW
+  esp_sleep_enable_ext1_wakeup(BUTTON_WAKE_MASK, ESP_EXT1_WAKEUP_ANY_LOW);
+  rtc_gpio_pullup_en((gpio_num_t)BUTTON_KEY0);
+  rtc_gpio_pulldown_dis((gpio_num_t)BUTTON_KEY0);
+  rtc_gpio_pullup_en((gpio_num_t)BUTTON_KEY1);
+  rtc_gpio_pulldown_dis((gpio_num_t)BUTTON_KEY1);
+  rtc_gpio_pullup_en((gpio_num_t)BUTTON_KEY2);
+  rtc_gpio_pulldown_dis((gpio_num_t)BUTTON_KEY2);
   esp_deep_sleep_start();
 }
 
