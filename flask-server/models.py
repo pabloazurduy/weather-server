@@ -843,13 +843,13 @@ class WeatherStore:
         buienradar_points = self._buienradar_points_with_timestamps(
             radar, now=datetime.datetime.fromtimestamp(fetched, BUIENRADAR_TZ)
         )
-        hourly_forecast = self.hourly_forecast(
-            lat,
-            lon,
-            hours=hours + 6,
-            force=force,
-            city=city,
-        )
+        try:
+            hourly_forecast = self.hourly_forecast(
+                lat, lon, hours=hours + 6, force=force, city=city,
+            )
+        except (requests.RequestException, ValueError) as exc:
+            print(f"[WARN] Hourly rain unavailable; retaining radar coverage: {exc}")
+            hourly_forecast = []
 
         start_ts = self._round_ts_to_5_minutes(self._current_timestamp())
         end_ts = start_ts + hours * 3600
@@ -918,13 +918,15 @@ class WeatherStore:
         force: bool = False,
         city: str | None = None,
     ) -> list:
-        hourly_forecast = self.hourly_forecast(
-            lat,
-            lon,
-            hours=hours + 6,
-            force=force,
-            city=city,
-        )
+        try:
+            hourly_forecast = self.hourly_forecast(
+                lat, lon, hours=hours + 6, force=force, city=city,
+            )
+        except (requests.RequestException, ValueError) as exc:
+            print(f"[WARN] Hourly temperature unavailable: {exc}")
+            return []
+        if not hourly_forecast:
+            return []
         points = []
         for offset in range(hours + 1):
             point_ts = start_ts + offset * 3600

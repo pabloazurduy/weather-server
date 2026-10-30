@@ -550,6 +550,22 @@ class RainIntervalTests(unittest.TestCase):
         points = self.forecast(hours=1)["points"]
         self.assertTrue(all(p["source"] == "Open-Meteo" for p in points))
 
+    def test_unavailable_hourly_does_not_hide_available_radar(self):
+        self.radar = [self.radar_point(0, 0.1)]
+        def fail(*args, **kwargs):
+            raise models.requests.ConnectionError("hourly offline")
+        self.store.hourly_forecast = fail
+        points = self.forecast(hours=1)["points"]
+        self.assertEqual(points[0]["source"], "Buienradar")
+        self.assertEqual(points[0]["mmh"], 0.1)
+        self.assertTrue(all(p["mmh"] is None for p in points[1:]))
+
+    def test_unavailable_hourly_temperature_is_not_a_fake_zero_degree_line(self):
+        def fail(*args, **kwargs):
+            raise models.requests.ConnectionError("hourly offline")
+        self.store.hourly_forecast = fail
+        self.assertEqual(self.store.get_temperature_forecast(SAMPLE_LAT, SAMPLE_LON, self.now), [])
+
     def test_missing_hourly_data_is_explicitly_unavailable(self):
         self.hourly = []
         forecast = self.forecast(hours=1)

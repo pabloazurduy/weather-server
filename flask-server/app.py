@@ -612,8 +612,9 @@ def _draw_proportional_chart(
     _text(draw, (x0, y0 + 2), f"{scale_max_mmh:.1f}mm/h", 9)
     if any(segment["mmh"] is None for segment in rain_segments):
         _text(draw, (x0 + 90, y0 + 2), "Rain gaps: no data", 9)
-    _text(draw, (x1 - 2, y0 + 2), f"{display_max_temp:.0f}°", 9, anchor="ra")
-    _text(draw, (x1 - 2, plot_bottom - 12), f"{display_min_temp:.0f}°", 9, anchor="ra")
+    if temp_values:
+        _text(draw, (x1 - 2, y0 + 2), f"{display_max_temp:.0f}°", 9, anchor="ra")
+        _text(draw, (x1 - 2, plot_bottom - 12), f"{display_min_temp:.0f}°", 9, anchor="ra")
 
 
 # ── PNG generation ─────────────────────────────────────────────────────────────
