@@ -4,7 +4,12 @@ import json
 import sqlite3
 import tempfile
 import unittest
+import io
+from types import SimpleNamespace
+from unittest.mock import patch
 from pathlib import Path
+
+from PIL import Image
 
 import rain_validation as audit
 
@@ -107,6 +112,29 @@ class IndependentRainReferenceTests(unittest.TestCase):
 
 
 class EvidenceCollectionTests(unittest.TestCase):
+    def test_capture_recognizes_a_cached_image_from_previous_chart_bucket(self):
+        now = 1793358000.0
+        def png(color):
+            output = io.BytesIO()
+            Image.new("L", (800, 480), color).save(output, format="PNG")
+            return output.getvalue()
+        actual, other = png(255), png(0)
+        cache = {name: {} for name in audit.TABLES}
+        def fetch(url, name, sample, previous=None):
+            return {"ok": True, "body": actual} if name == "dashboard" else {"ok": False, "error": "test provider offline"}
+        def replay(cache, rendered_at, code_dir):
+            return (actual if rendered_at < now else other), {"segments": [],
+                "rain_axis": {"printed_top_mmh": 1.0, "scale_max_mmh": 1.0}}
+        with tempfile.TemporaryDirectory() as directory:
+            args = SimpleNamespace(database=Path("unused"), city="Amsterdam", latitude=52.36,
+                                   longitude=4.84, base_url="http://example.test", code_dir=Path("unused"))
+            with patch.object(audit.time, "time", return_value=now), patch.object(audit, "read_cache", return_value=cache), \
+                    patch.object(audit, "fetch", side_effect=fetch), patch.object(audit, "replay", side_effect=replay):
+                analysis, _ = audit.capture(args, Path(directory) / "sample", None)
+        self.assertTrue(analysis["image_check"]["matched"])
+        self.assertEqual(analysis["image_check"]["different_pixels"], 0)
+        self.assertEqual(analysis["reconstructed_at"], audit.iso(now - 300))
+
     def test_missed_attempt_is_not_counted_as_a_collected_image(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)

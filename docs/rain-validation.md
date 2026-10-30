@@ -74,6 +74,9 @@ drew. Both before/after cache candidates are tried. Only a sufficiently matching
 chart crop is eligible for an image-confirmed finding; differences greater than
 1% of foreground pixels leave the reconstruction inconclusive. The first
 preflight and first full-run sample each matched with **zero differing pixels**.
+The request-time and preceding five-minute chart buckets are both tried because
+the server may legitimately return a cached PNG. The chosen replay time is saved
+as `reconstructed_at`; the collector never forces a refresh to obtain a match.
 
 Fresh API responses can differ because a forecast updated after the server cached
 its inputs. The audit records that difference separately. Provider disagreement

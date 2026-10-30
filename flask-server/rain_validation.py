@@ -403,19 +403,22 @@ def capture(args, sample, met_cache):
     candidates = []
     if results["dashboard"].get("ok"):
         for label, cache in (("after", after), ("before", before)):
-            try:
-                png, data = replay(cache, now, args.code_dir)
-                metrics = image_difference(results["dashboard"]["body"], png)
-                candidates.append((metrics["foreground_difference_fraction"], label, cache, png, data, metrics))
-            except Exception as exc:
-                analysis.setdefault("reconstruction_errors", {})[label] = str(exc)
+            # The endpoint can serve a five-minute-old PNG. Try its preceding
+            # chart bucket as well as the request time; never force a refresh.
+            for rendered_at in (now, now - 300):
+                try:
+                    png, data = replay(cache, rendered_at, args.code_dir)
+                    metrics = image_difference(results["dashboard"]["body"], png)
+                    candidates.append((metrics["foreground_difference_fraction"], label, cache, png, data, metrics, rendered_at))
+                except Exception as exc:
+                    analysis.setdefault("reconstruction_errors", {})[f"{label}:{iso(rendered_at)}"] = str(exc)
     rows = []
     if candidates:
-        _, label, cache, png, data, metrics = min(candidates, key=lambda candidate: candidate[0])
+        _, label, cache, png, data, metrics, rendered_at = min(candidates, key=lambda candidate: candidate[0])
         (sample / "reconstructed.png").write_bytes(png)
         write_json(sample / "production_chart.json", data)
         rows, issues, ages = validate_segments(data["segments"], cache, now, data.get("rain_axis"))
-        analysis.update(image_check=metrics, cache_variant=label, cached_source_age_seconds=ages,
+        analysis.update(image_check=metrics, cache_variant=label, reconstructed_at=iso(rendered_at), cached_source_age_seconds=ages,
                         issues=[{**issue, "confidence": "confirmed_in_image" if metrics["matched"] else "candidate_reconstruction_only"}
                                 for issue in issues])
     analysis["provider_comparison"] = provider_comparisons(results, rows)
