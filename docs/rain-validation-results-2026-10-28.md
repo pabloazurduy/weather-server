@@ -104,5 +104,8 @@ on the NAS at
 - First image: [dashboard](../tmp/rain-validation-2026-10-28/evidence/samples/0000_20261028T184305Z/dashboard.png), [independent comparison](../tmp/rain-validation-2026-10-28/evidence/samples/0000_20261028T184305Z/reference.png), [bar values](../tmp/rain-validation-2026-10-28/evidence/samples/0000_20261028T184305Z/segments.csv).
 - Largest bar error: [dashboard](../tmp/rain-validation-2026-10-28/evidence/samples/0034_20261028T213305Z/dashboard.png), [independent comparison](../tmp/rain-validation-2026-10-28/evidence/samples/0034_20261028T213305Z/reference.png), [bar values](../tmp/rain-validation-2026-10-28/evidence/samples/0034_20261028T213305Z/segments.csv).
 
-No rain-logic fix was deployed as part of this review. The scheduled follow-up
-was already confirmed absent on 29 October and has not been recreated.
+This report describes the unmodified pre-fix baseline. The corrections were
+subsequently deployed on 30 October and checked against all 289 saved inputs
+and a fresh live image; see the [deployment record](nas-deployment-2026-10-30.md).
+The old audit container was removed, with its evidence retained. The scheduled
+follow-up was already confirmed absent on 29 October and has not been recreated.

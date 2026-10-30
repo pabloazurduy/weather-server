@@ -177,8 +177,13 @@ in 48. Buienradar's 6,936 recorded bars pass the source-value comparison within
 rounding. A separate production current-conditions request returned HTTP 503 at
 11:07:04 CET on 29 October; cached data kept the dashboard available.
 
-The run audited plotting correctness, not observed rainfall accuracy. No
-production rain-logic fix has been deployed. See the
+The run audited plotting correctness, not observed rainfall accuracy. The fixes
+were deployed on **30 October**, preserving Buienradar priority over all available
+short-term intervals and using properly aligned Open-Meteo amounts elsewhere.
+All 49 tests passed; corrected renders of all 289 saved inputs and a one-shot
+check of the live dashboard had zero timing, scale, or priority findings. The
+old audit container was removed without deleting evidence. See the
+[deployment and recovery record](../nas-deployment-2026-10-30.md),
 [verified final results and recommended corrections](../rain-validation-results-2026-10-28.md)
 and [validation details](../rain-validation.md).
 

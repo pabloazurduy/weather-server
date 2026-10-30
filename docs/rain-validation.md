@@ -5,7 +5,7 @@
 - Started: **28 October 2026, 19:43:05 CET**.
 - Finished: **29 October 2026, 19:43:06 CET**; collector exited successfully with zero restarts.
 - Sampling interval: 5 minutes, with 289 planned samples including both endpoints.
-- NAS collector: `weather-rain-audit-20261028`.
+- NAS collector: `weather-rain-audit-20261028` (removed on 30 October after completion).
 - NAS run directory: `/volume2/docker/weather-validation/2026-10-28-rain-audit`.
 - Live run state and report: `evidence/status.json` and `evidence/report.md` in that directory.
 - Complete local evidence: `tmp/rain-validation-2026-10-28/evidence/` in this repository. The older files in its parent directory are only the initial one-sample copy.
@@ -103,6 +103,16 @@ The [final review](rain-validation-results-2026-10-28.md) includes full-window
 coverage, frequencies, examples, limitations, and recommended corrections.
 The corrections and deployment checks are tracked below; the original run's
 evidence remains unchanged as the pre-fix baseline.
+
+## Correction deployed on 30 October
+
+The corrected image is running on the NAS. All 49 unit tests passed, and all
+289 saved baseline cases were re-rendered with zero independent timing, scale,
+or Buienradar-priority findings. A one-shot check of the live image also matched
+exactly, with zero findings or provider errors. See the
+[deployment, verification, and rollback record](nas-deployment-2026-10-30.md).
+The original validator container has been removed without deleting its evidence;
+the one-shot deployment check removed itself on exit.
 
 ## Isolation and reproducibility
 
