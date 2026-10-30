@@ -14,6 +14,9 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from zoneinfo import ZoneInfo
+from unittest.mock import patch
+
+from PIL import Image, ImageDraw
 
 import app
 import models
@@ -284,6 +287,7 @@ class WeatherStoreTests(unittest.TestCase):
         self.assertEqual(latest["payload"], [{"ts": 10, "temp_c": 15.0, "rain_mmh": 0.0}])
 
     def test_get_rain_forecast_keeps_5_min_detail_then_switches_to_hour_groups(self):
+        self.store._current_timestamp = lambda: 1_710_000_000
         self.store.buienradar = lambda lat, lon, force=False, city=None: [
             {"time": "10:00", "mmh": 0.0},
             {"time": "10:05", "mmh": 0.2},
@@ -473,6 +477,111 @@ class WeatherStoreTests(unittest.TestCase):
         )
 
         self.assertEqual(icon_key, "freezing_windy")
+
+
+class RainIntervalTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.store = WeatherStore(Path(self.directory.name) / "cache.sqlite3")
+        self.now = int(datetime.datetime(2026, 10, 30, 10, 0, tzinfo=models.BUIENRADAR_TZ).timestamp())
+        self.store._current_timestamp = lambda: self.now
+        self.radar = []
+        self.hourly = [{"ts": self.now + hour * 3600, "rain_mmh": 2.0, "temp_c": 10.0}
+                       for hour in range(5)]
+        self.store.buienradar = lambda *args, **kwargs: self.radar
+        self.store.hourly_forecast = lambda *args, **kwargs: self.hourly
+
+    def radar_point(self, offset, rate):
+        timestamp = self.now + offset * 300
+        return {"time": datetime.datetime.fromtimestamp(timestamp, models.BUIENRADAR_TZ).strftime("%H:%M"),
+                "mmh": rate, "value": 0 if rate == 0 else 109}
+
+    def forecast(self, **kwargs):
+        return self.store.get_rain_forecast(SAMPLE_LAT, SAMPLE_LON, **kwargs)
+
+    def test_hourly_amount_covers_preceding_hour(self):
+        series = [{"ts": 3600, "rain_mmh": 3}, {"ts": 7200, "rain_mmh": 0}]
+        self.assertEqual(self.store._hourly_rain_rate(series, 0, 3600), 3)
+        self.assertEqual(self.store._hourly_rain_rate(series, 1800, 5400), 1.5)
+        self.assertEqual(self.store._hourly_rain_rate(series, 2700, 3600), 3)
+
+    def test_hourly_missing_null_and_nonfinite_data_are_not_dry(self):
+        for series in ([], [{"ts": 3600, "rain_mmh": None}],
+                       [{"ts": 3600, "rain_mmh": float("nan")}],
+                       [{"ts": 7200, "rain_mmh": 1}]):
+            with self.subTest(series=series):
+                self.assertIsNone(self.store._hourly_rain_rate(series, 0, 3600))
+
+    def test_observed_offset_bar_is_not_shifted_forward(self):
+        series = [{"ts": 21 * 3600, "rain_mmh": 0.5},
+                  {"ts": 22 * 3600, "rain_mmh": 0.1},
+                  {"ts": 23 * 3600, "rain_mmh": 0.1}]
+        self.assertAlmostEqual(self.store._hourly_rain_rate(series, 21 * 3600 + 2100, 22 * 3600 + 2100), 0.1)
+
+    def test_hourly_gap_inside_a_group_is_not_filled_with_zero(self):
+        series = [{"ts": 3600, "rain_mmh": 1}, {"ts": 10800, "rain_mmh": 1}]
+        self.assertIsNone(self.store._hourly_rain_rate(series, 1800, 9000))
+
+    def test_buienradar_wins_including_a_dry_forecast(self):
+        self.radar = [self.radar_point(index, 0.0) for index in range(25)]
+        forecast = self.forecast(hours=3, detailed_hours=1)
+        for point in forecast["points"][:25]:
+            self.assertEqual(point["source"], "Buienradar")
+            self.assertEqual(point["mmh"], 0)
+        self.assertEqual(forecast["points"][25]["source"], "Open-Meteo")
+
+    def test_radar_gap_uses_hourly_without_overriding_later_radar(self):
+        self.radar = [self.radar_point(0, 0.1), self.radar_point(2, 0.3)]
+        points = self.forecast(hours=1)["points"]
+        self.assertEqual([p["source"] for p in points[:3]], ["Buienradar", "Open-Meteo", "Buienradar"])
+        self.assertEqual([p["mmh"] for p in points[:3]], [0.1, 2.0, 0.3])
+
+    def test_stale_radar_is_anchored_to_original_fetch_day(self):
+        self.radar = [self.radar_point(0, 10)]
+        self.store.record_snapshot("buienradar_rain", self.radar, fetched_at=self.now - 86400)
+        points = self.forecast(hours=1)["points"]
+        self.assertTrue(all(p["source"] == "Open-Meteo" for p in points))
+
+    def test_unavailable_radar_does_not_break_hourly_fallback(self):
+        def fail(*args, **kwargs):
+            raise models.requests.ConnectionError("radar offline")
+        self.store.buienradar = fail
+        points = self.forecast(hours=1)["points"]
+        self.assertTrue(all(p["source"] == "Open-Meteo" for p in points))
+
+    def test_missing_hourly_data_is_explicitly_unavailable(self):
+        self.hourly = []
+        forecast = self.forecast(hours=1)
+        self.assertTrue(all(p["mmh"] is None and p["source"] == "Unavailable" for p in forecast["points"]))
+        self.assertIsNone(app._rain_segments(forecast)[0]["mmh"])
+
+    def test_partial_last_bar_uses_its_actual_shorter_duration(self):
+        self.radar = [self.radar_point(0, 0)]
+        self.hourly[2]["rain_mmh"] = 0
+        forecast = self.forecast(hours=2)
+        segments = app._rain_segments(forecast)
+        self.assertEqual(segments[-1]["end_ts"] - segments[-1]["start_ts"], 3300)
+        self.assertEqual(segments[-1]["mmh"], 0)
+        self.assertAlmostEqual(segments[1]["mmh"], 2 * 55 / 60)
+
+    def test_axis_label_uses_the_same_scale_as_bar_height(self):
+        forecast = {"start_ts": 0, "end_ts": 3600, "points": [
+            {"ts": 0, "group_start_ts": 0, "duration_minutes": 60, "mmh": 0.5}]}
+        image = Image.new("L", (800, 480), 255)
+        with patch.object(app, "_text") as text:
+            app._draw_proportional_chart(ImageDraw.Draw(image), (16, 236, 525, 451), forecast, [], models.BUIENRADAR_TZ)
+        labels = [call.args[2] for call in text.call_args_list]
+        self.assertIn("1.0mm/h", labels)
+        self.assertNotIn("0.5mm/h", labels)
+
+    def test_missing_data_renders_a_gap_warning(self):
+        self.hourly = []
+        forecast = self.forecast(hours=1)
+        image = Image.new("L", (800, 480), 255)
+        with patch.object(app, "_text") as text:
+            app._draw_proportional_chart(ImageDraw.Draw(image), (16, 236, 525, 451), forecast, [], models.BUIENRADAR_TZ)
+        self.assertIn("Rain gaps: no data", [call.args[2] for call in text.call_args_list])
 
 
 class HTTPServerResilienceTests(unittest.TestCase):

@@ -8,6 +8,9 @@ __pycache__
 
 # Local-only secrets and data
 arduino/weather_display/secrets.h
+arduino-reterminal/weather_display/secrets.h
+arduino-lilygo/**/secrets.h
+tmp/
 flask-server/local_settings.py
 flask-server/weather_cache.sqlite3
 flask-server/weather_cache.sqlite3-*

@@ -1,0 +1,47 @@
+# Opt-in only: this never starts with the normal dashboard container.
+services:
+  rain-validation:
+    image: ghcr.io/pabloazurduy/weather-server:latest
+    profiles: [validation]
+    network_mode: host
+    user: "1000:10"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 0.5
+    restart: "no"
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=64m
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      WEATHER_CITY: "${WEATHER_CITY:-Amstedam}"
+      WEATHER_CITY_LAT: "${WEATHER_CITY_LAT:-52.36}"
+      WEATHER_CITY_LON: "${WEATHER_CITY_LON:-4.84}"
+      WEATHER_BASE_URL: "${WEATHER_BASE_URL:-http://nas.local:5050}"
+      WEATHER_DB_PATH: /production-data/weather_cache.sqlite3
+    volumes:
+      - ${RAIN_AUDIT_DATA_DIR:-/volume2/docker/weather-server}:/production-data:ro
+      - ${RAIN_AUDIT_OUTPUT_DIR:?Set RAIN_AUDIT_OUTPUT_DIR to a new absolute evidence directory}:/evidence
+    command:
+      - python
+      - /app/rain_validation.py
+      - --database
+      - /production-data/weather_cache.sqlite3
+      - --output
+      - /evidence
+      - --code-dir
+      - /app
+      - --base-url
+      - "${RAIN_AUDIT_BASE_URL:-http://127.0.0.1:5050}"
+      - --city
+      - "${WEATHER_CITY:-Amstedam}"
+      - --latitude
+      - "${WEATHER_CITY_LAT:-52.36}"
+      - --longitude
+      - "${WEATHER_CITY_LON:-4.84}"
+      - --duration-hours
+      - "${RAIN_AUDIT_HOURS:-24}"
+      - --interval-seconds
+      - "${RAIN_AUDIT_INTERVAL_SECONDS:-300}"

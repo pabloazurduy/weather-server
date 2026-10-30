@@ -517,10 +517,15 @@ def _rain_segments(rain_forecast: dict) -> list[dict]:
             {
                 "start_ts": group_start_ts,
                 "end_ts": min(group_start_ts + duration_seconds, end_ts),
-                "mmh": float(point["mmh"]),
+                "mmh": float(point["mmh"]) if point["mmh"] is not None else None,
             }
         )
     return segments
+
+
+def _rain_scale_max(segments: list[dict]) -> float:
+    """One shared scale for rain bar heights and the printed axis label."""
+    return max(1.0, max((s["mmh"] for s in segments if s["mmh"] is not None), default=0.0))
 
 
 def _draw_proportional_chart(
@@ -539,8 +544,7 @@ def _draw_proportional_chart(
     total_span = max(end_ts - start_ts, 1)
     rain_segments = _rain_segments(rain_forecast)
 
-    actual_max_mmh = max((segment["mmh"] for segment in rain_segments), default=0.0)
-    scale_max_mmh = max(actual_max_mmh, 1.0)
+    scale_max_mmh = _rain_scale_max(rain_segments)
     temp_values = [point["temp_c"] for point in temp_forecast]
     min_temp = min(temp_values) if temp_values else 0.0
     max_temp = max(temp_values) if temp_values else 1.0
@@ -557,7 +561,7 @@ def _draw_proportional_chart(
         return plot_bottom - int(ratio * (plot_height - 8))
 
     for segment in rain_segments:
-        if segment["mmh"] <= 0:
+        if segment["mmh"] is None or segment["mmh"] <= 0:
             continue
         bar_height = max(1, int((segment["mmh"] / scale_max_mmh) * plot_height))
         seg_x0 = x_for(segment["start_ts"])
@@ -605,7 +609,9 @@ def _draw_proportional_chart(
         _text(draw, (label_x, y1 - 18), label, 12, anchor="mt")
         tick_dt += datetime.timedelta(hours=1)
 
-    _text(draw, (x0, y0 + 2), f"{actual_max_mmh:.1f}mm/h", 9)
+    _text(draw, (x0, y0 + 2), f"{scale_max_mmh:.1f}mm/h", 9)
+    if any(segment["mmh"] is None for segment in rain_segments):
+        _text(draw, (x0 + 90, y0 + 2), "Rain gaps: no data", 9)
     _text(draw, (x1 - 2, y0 + 2), f"{display_max_temp:.0f}°", 9, anchor="ra")
     _text(draw, (x1 - 2, plot_bottom - 12), f"{display_min_temp:.0f}°", 9, anchor="ra")
 

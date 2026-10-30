@@ -55,6 +55,17 @@ Dashboard source usage:
 
 - Current conditions, the left-side main temperature, the day header time, the 7-day min/max values, and the temperature plot all come from Open-Meteo.
 - Buienradar is only used for short-range rain detail inside the Netherlands and Belgium; elsewhere the rain chart falls back to Open-Meteo precipitation.
+- When radar data is available it takes priority, even when its rain value is
+  zero. Open-Meteo is used only outside that coverage, averaging the appropriate
+  preceding-hour amounts over each bar. Missing data is not presented as dry.
+
+The independent validator, `rain_validation.py`, is retained for optional future
+audits; see [instructions](../docs/rain-validation.md). It is never started by
+the dashboard's normal entry point. Run all tests with:
+
+```bash
+python -m unittest discover -p 'test*.py'
+```
 
 Container image publishing:
 

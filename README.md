@@ -59,6 +59,20 @@ Examples: `Amsterdam`, `Amsterdam,NL`, `Portland,OR,US`. No camel case is requir
 
 The rendered dashboard now uses Open-Meteo for current conditions, daily min/max values, and the temperature plot. Buienradar is only used for short-range rain detail in the Netherlands and Belgium.
 
+The [independent rain-chart audit](docs/rain-validation.md) captures dashboard
+images and provider responses over 24 hours, checks plotted intervals and units,
+and separates plotting errors from ordinary forecast updates.
+
+For rain, Buienradar has priority over every interval its short-term feed
+covers, including a dry forecast. Open-Meteo fills gaps and the longer range
+using overlap-weighted precipitation over its preceding-hour accumulation
+periods. Missing coverage is marked as unavailable, not converted to zero.
+Rain-axis labels and bar heights share the same scale.
+
+The validator is opt-in via `compose.rain-validation.yml`; it is not a background
+part of the dashboard. Its [reuse instructions](docs/rain-validation.md#run-another-audit-on-the-nas)
+explain how to start a bounded audit and remove its container without deleting evidence.
+
 The weather cache is stored in `flask-server/weather_cache.sqlite3`. Weather-source history is partitioned by normalized city so one database can keep cached data for multiple locations.
 
 ## Mascot selection logic
@@ -131,19 +145,36 @@ For the production display sketch:
 3. Install the libraries referenced at the top of `arduino-reterminal/weather_display/weather_display.ino`.
 4. Build and flash from the Arduino IDE for `XIAO_ESP32S3` with PSRAM enabled.
 
-### reTerminal recovery and power protection
+### reTerminal recovery and offline display
 
 An e-paper panel keeps its last image without power, so an unchanged screen does
 not by itself mean the board is frozen. Connect the carrier USB serial port at
 115200 baud to see each wake cycle and the exact Wi-Fi/HTTP error.
 
-The production sketch protects the device from the two most confusing failure
-modes:
+The production sketch supports manual recovery and keeps the forecast visible
+during network outages:
 
 - All three top buttons (GPIO3, GPIO4, and GPIO5) are RTC wake sources with
   pull-ups that remain enabled during deep sleep. Any button wakes and refreshes.
-- A Wi-Fi/server failure is shown once on the panel instead of silently leaving
-  a stale dashboard in place. The device continues retrying automatically.
+- Each complete, successful dashboard download is saved to flash with an
+  integrity checksum. The cached forecast survives deep sleep and restarts.
+- If Wi-Fi or the server becomes unavailable, the last forecast stays visible
+  with a small `Connection lost` badge in the bottom-right footer. The badge is
+  drawn once per outage; the device retries every 15 minutes or on a button press.
+- A successful refresh replaces the cached forecast and removes the badge. If
+  there is no usable cache yet, the existing panel image is left untouched.
+- Server requests allow 45 seconds for a response, covering the measured delay
+  when the NAS has to fall back to cached weather after failed upstream lookups.
+
+Keep the board's `Default with spiffs` partition scheme enabled for the local
+LittleFS forecast cache. On first use the sketch initializes the filesystem only
+if that partition is completely erased. Existing filesystems that cannot be
+mounted are left untouched; without a usable cache, failures still preserve the
+panel image but cannot add the badge.
+
+The [offline recovery hardware test](arduino-reterminal/tests/offline_recovery/README.md)
+checks cache integrity, interrupted saves, deep sleep, outage handling, and normal
+recovery on a connected reTerminal without disconnecting the NAS.
 
 After a complete battery discharge, charge for a few minutes with the rear power
 switch on, then press any top button to wake and refresh it. If the protection

@@ -15,3 +15,8 @@ weather_cache.sqlite3-*
 
 # Local Arduino secrets
 arduino/weather_display/secrets.h
+arduino-reterminal/weather_display/secrets.h
+arduino-lilygo/**/secrets.h
+
+# Captured validation output and other local artifacts (may contain location data).
+tmp/

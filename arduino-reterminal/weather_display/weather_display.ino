@@ -26,14 +26,17 @@
 #include <SensirionI2cSht4x.h>
 #include <SPI.h>
 #include <GxEPD2_BW.h>
-#include <Fonts/FreeMonoBold9pt7b.h>
+#include <LittleFS.h>
 #include <esp_sleep.h>
+#include <esp_partition.h>
 #include <driver/rtc_io.h>
 #include "secrets.h"
 
 // ── Server ──────────────────────────────────────────────────────────────────
 #define BIN_PATH      "/dashboard.bin"
 #define SLEEP_SEC     900ULL   // 15 minutes
+// Cached source fallback can take ~20 seconds while the NAS is offline.
+#define HTTP_READ_TIMEOUT_MS 45000
 
 // ── Pin Definitions ──────────────────────────────────────────────────────────
 #define EPD_SCK_PIN   7
@@ -73,15 +76,105 @@ GxEPD2_BW<GxEPD2_750_GDEY075T7, MAX_HEIGHT(GxEPD2_750_GDEY075T7)>
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 static const uint32_t BITMAP_BYTES = 800UL * 480UL / 8UL;  // 48000
+static const char* CACHE_PATH = "/weather-forecast.bin";
+static const char* CACHE_TEMP_PATH = "/weather-forecast.tmp";
+static const uint32_t CACHE_MAGIC = 0x57444331;  // weather display cache v1
+
+struct ForecastCacheHeader {
+  uint32_t magic;
+  uint32_t bytes;
+  uint32_t checksum;
+};
+
+static bool cache_ready = false;
 
 enum StatusScreen : uint8_t {
   STATUS_DASHBOARD = 0,
   STATUS_NETWORK_ERROR,
 };
 
-// RTC memory survives deep sleep, so identical error screens are not redrawn
-// every cycle. It is reset naturally after a complete battery discharge.
+// Redraw the offline badge once per outage. The bitmap itself lives in flash,
+// because ordinary RAM and PSRAM do not survive deep sleep.
 RTC_DATA_ATTR static uint8_t shown_status = STATUS_DASHBOARD;
+RTC_DATA_ATTR static uint32_t displayed_checksum = 0;
+
+// ── Persistent last forecast ─────────────────────────────────────────────────
+uint32_t bitmapChecksum(const uint8_t* bitmap) {
+  uint32_t checksum = 2166136261UL;  // FNV-1a, for corruption detection
+  for (uint32_t i = 0; i < BITMAP_BYTES; ++i) {
+    checksum = (checksum ^ bitmap[i]) * 16777619UL;
+  }
+  return checksum;
+}
+
+bool initForecastCache() {
+  if (LittleFS.begin(false)) return true;
+
+  // Initialize only a completely unused filesystem partition. Never format
+  // existing or corrupt user data merely because mounting failed.
+  const esp_partition_t* partition = esp_partition_find_first(
+      ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, "spiffs");
+  if (!partition) {
+    Serial1.println("[cache] No filesystem partition; retaining panel on failure");
+    return false;
+  }
+  uint8_t block[512];
+  for (size_t offset = 0; offset < partition->size; offset += sizeof(block)) {
+    size_t count = min(sizeof(block), partition->size - offset);
+    if (esp_partition_read(partition, offset, block, count) != ESP_OK) return false;
+    for (size_t i = 0; i < count; ++i) {
+      if (block[i] != 0xFF) {
+        Serial1.println("[cache] Existing filesystem unavailable; leaving it untouched");
+        return false;
+      }
+    }
+    yield();
+  }
+  Serial1.println("[cache] Initializing unused filesystem partition");
+  return LittleFS.format() && LittleFS.begin(false);
+}
+
+bool saveCachedBitmap(const uint8_t* bitmap) {
+  if (!cache_ready) return false;
+  ForecastCacheHeader header = {CACHE_MAGIC, BITMAP_BYTES, bitmapChecksum(bitmap)};
+  File file = LittleFS.open(CACHE_TEMP_PATH, FILE_WRITE);
+  if (!file) return false;
+  bool complete = file.write(reinterpret_cast<const uint8_t*>(&header), sizeof(header))
+                      == sizeof(header)
+                  && file.write(bitmap, BITMAP_BYTES) == BITMAP_BYTES;
+  file.flush();
+  file.close();
+  // Atomic replacement leaves the previous cache intact if writing is interrupted.
+  if (!complete || !LittleFS.rename(CACHE_TEMP_PATH, CACHE_PATH)) {
+    LittleFS.remove(CACHE_TEMP_PATH);
+    Serial1.println("[cache] Save failed; previous cache retained");
+    return false;
+  }
+  Serial1.printf("[cache] Saved %u bytes, checksum=%08x\n", BITMAP_BYTES, header.checksum);
+  return true;
+}
+
+bool loadCachedBitmap(uint8_t* bitmap) {
+  if (!cache_ready || !LittleFS.exists(CACHE_PATH)) return false;
+  File file = LittleFS.open(CACHE_PATH, FILE_READ);
+  if (!file || file.size() != sizeof(ForecastCacheHeader) + BITMAP_BYTES) return false;
+  ForecastCacheHeader header;
+  if (file.read(reinterpret_cast<uint8_t*>(&header), sizeof(header)) != sizeof(header)
+      || header.magic != CACHE_MAGIC || header.bytes != BITMAP_BYTES
+      || file.read(bitmap, BITMAP_BYTES) != BITMAP_BYTES) return false;
+  if (bitmapChecksum(bitmap) != header.checksum) {
+    Serial1.println("[cache] Checksum mismatch; retaining panel image");
+    return false;
+  }
+  // If saving the most recent displayed image failed, do not replace it with
+  // an older cached forecast on the next wake.
+  if (displayed_checksum != 0 && displayed_checksum != header.checksum) {
+    Serial1.println("[cache] Older than displayed image; retaining panel image");
+    return false;
+  }
+  Serial1.printf("[cache] Restored %u bytes, checksum=%08x\n", BITMAP_BYTES, header.checksum);
+  return true;
+}
 
 // ── Battery ───────────────────────────────────────────────────────────────────
 float readBattery() {
@@ -109,33 +202,40 @@ void initDisplay() {
   display.init(0, true);
 }
 
-void showStatus(const char* msg, float batt_v, uint64_t retry_sec) {
-  Serial1.printf("[ERROR] %s\n", msg);
+void drawOfflineBitmap(const uint8_t* bitmap) {
   display.setRotation(0);
   display.setFullWindow();
   display.firstPage();
   do {
-    display.fillScreen(GxEPD_WHITE);
-    display.setFont(&FreeMonoBold9pt7b);
+    // Adafruit's bitmap API maps set bits to the foreground. Our server's set
+    // bits mean white, so use white foreground and black background.
+    display.drawBitmap(0, 0, bitmap, 800, 480, GxEPD_WHITE, GxEPD_BLACK);
+    // Only cover the footer URL, leaving all forecast data and its date visible.
+    display.fillRect(640, 456, 144, 16, GxEPD_WHITE);
+    display.drawRect(640, 456, 144, 16, GxEPD_BLACK);
+    display.setFont(nullptr);
+    display.setTextSize(1);
     display.setTextColor(GxEPD_BLACK);
-    display.setCursor(20, 40);
-    display.print("Weather Display Error:");
-    display.setCursor(20, 70);
-    display.print(msg);
-    display.setCursor(20, 100);
-    display.printf("Battery: %.2f V", batt_v);
-    display.setCursor(20, 130);
-    display.printf("Automatic retry in %llu min", retry_sec / 60);
+    display.setCursor(650, 460);
+    display.print("Connection lost");
   } while (display.nextPage());
 }
 
-void showStatusOnce(StatusScreen status, const char* msg,
-                    float batt_v, uint64_t retry_sec) {
-  if (shown_status == status) return;
+void showConnectionLost(uint8_t* bitmap) {
+  if (shown_status == STATUS_NETWORK_ERROR) {
+    Serial1.println("[offline] Forecast and warning already visible");
+    return;
+  }
+  if (!loadCachedBitmap(bitmap)) {
+    // Without a safe copy, touching the controller could erase its last image.
+    Serial1.println("[offline] No matching cache; keeping existing panel unchanged");
+    return;
+  }
   initDisplay();
-  showStatus(msg, batt_v, retry_sec);
+  drawOfflineBitmap(bitmap);
   display.hibernate();
-  shown_status = status;
+  shown_status = STATUS_NETWORK_ERROR;
+  Serial1.println("[offline] Last forecast retained with connection warning");
 }
 
 void drawBitmap(const uint8_t* bitmap) {
@@ -173,6 +273,7 @@ void pushSensorData(float temp, float hum, float batt_v) {
            temp, hum, batt_v);
   HTTPClient http;
   http.begin(url);
+  http.setTimeout(HTTP_READ_TIMEOUT_MS);
   http.addHeader("Content-Type", "application/json");
   int code = http.POST(body);
   if (code < 0) {
@@ -210,7 +311,7 @@ void triggerRefresh() {
   Serial1.printf("Triggering server refresh: %s\n", url);
   HTTPClient http;
   http.begin(url);
-  http.setTimeout(10000);
+  http.setTimeout(HTTP_READ_TIMEOUT_MS);
   int code = http.GET();
   if (code < 0) {
     Serial1.printf("Refresh response: %d (%s)\n", code,
@@ -231,7 +332,7 @@ bool downloadBitmap(uint8_t* buf, float batt_v) {
 
   HTTPClient http;
   http.begin(url);
-  http.setTimeout(10000);
+  http.setTimeout(HTTP_READ_TIMEOUT_MS);
   int code = http.GET();
 
   if (code != HTTP_CODE_OK) {
@@ -243,6 +344,11 @@ bool downloadBitmap(uint8_t* buf, float batt_v) {
 
   int contentLen = http.getSize();
   Serial1.printf("Content-Length: %d (expected %u)\n", contentLen, BITMAP_BYTES);
+  if (contentLen != static_cast<int>(BITMAP_BYTES)) {
+    Serial1.println("Unexpected bitmap size — keeping last forecast");
+    http.end();
+    return false;
+  }
 
   WiFiClient* stream = http.getStreamPtr();
 
@@ -310,13 +416,17 @@ void setup() {
     goto sleep;
   }
 
+  cache_ready = initForecastCache();
+
   // Connect WiFi and download BEFORE touching the display.
   // UC8179 must not sit in Power-On state for 15+ seconds waiting for data —
   // it will auto-reset and produce a "flash then clear" failure pattern.
   if (!connectWiFi()) {
     Serial1.println("WiFi failed — sleeping");
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+    showConnectionLost(bitmap);
     free(bitmap);
-    showStatusOnce(STATUS_NETWORK_ERROR, "WiFi unavailable", batt_v, SLEEP_SEC);
     goto sleep;
   }
 
@@ -338,16 +448,19 @@ void setup() {
 
   if (!downloadBitmap(bitmap, batt_v)) {
     Serial1.println("Download failed — sleeping");
-    free(bitmap);
     WiFi.disconnect(true);
     WiFi.mode(WIFI_OFF);
-    showStatusOnce(STATUS_NETWORK_ERROR, "Weather server unavailable",
-                   batt_v, SLEEP_SEC);
+    showConnectionLost(bitmap);
+    free(bitmap);
     goto sleep;
   }
 
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
+
+  // Store the clean bitmap before adding any local status overlay. This copy
+  // survives deep sleep, reboots, and an interruption while the next file is saved.
+  saveCachedBitmap(bitmap);
 
   // Init display NOW — immediately before drawing so the Power-On
   // high-voltage state lasts only the few seconds needed for the refresh.
@@ -356,6 +469,7 @@ void setup() {
   drawBitmap(bitmap);
   Serial1.println("Display updated.");
   shown_status = STATUS_DASHBOARD;
+  displayed_checksum = bitmapChecksum(bitmap);
 
   free(bitmap);
   display.hibernate();

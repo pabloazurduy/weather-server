@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import math
 import sqlite3
 import threading
 import time
@@ -758,7 +759,10 @@ class WeatherStore:
                     {
                         "ts": self._parse_local_hourly_timestamp(timestamp, local_tz),
                         "temp_c": float(hourly["temperature_2m"][index]),
-                        "rain_mmh": float(hourly["precipitation"][index] or 0.0),
+                        "rain_mmh": (
+                            float(hourly["precipitation"][index])
+                            if hourly["precipitation"][index] is not None else None
+                        ),
                     }
                 )
             now_ts = self._current_timestamp()
@@ -824,8 +828,20 @@ class WeatherStore:
         force: bool = False,
         city: str | None = None,
     ) -> dict:
+        # The fetch date matters when falling back to an old, time-only radar
+        # response: yesterday's rain must not become today's future forecast.
+        try:
+            radar = self.buienradar(lat, lon, force=force, city=city)
+        except (requests.RequestException, ValueError) as exc:
+            print(f"[WARN] Buienradar unavailable, using hourly rain: {exc}")
+            radar = []
+        snapshot = (
+            self.latest_snapshot("buienradar_rain", city=city)
+            if radar and "buienradar_rain" in self.endpoint_policies else None
+        )
+        fetched = snapshot["fetched_at"] if snapshot else self._current_timestamp()
         buienradar_points = self._buienradar_points_with_timestamps(
-            self.buienradar(lat, lon, force=force, city=city)
+            radar, now=datetime.datetime.fromtimestamp(fetched, BUIENRADAR_TZ)
         )
         hourly_forecast = self.hourly_forecast(
             lat,
@@ -835,52 +851,33 @@ class WeatherStore:
             city=city,
         )
 
-        start_ts = (
-            buienradar_points[0]["ts"]
-            if buienradar_points
-            else self._round_ts_to_5_minutes(self._current_timestamp())
-        )
+        start_ts = self._round_ts_to_5_minutes(self._current_timestamp())
         end_ts = start_ts + hours * 3600
-        desired_detail_end_ts = start_ts + detailed_hours * 3600
-        available_detail_end_ts = start_ts
-        if buienradar_points:
-            available_detail_end_ts = min(
-                desired_detail_end_ts,
-                buienradar_points[-1]["ts"] + 5 * 60,
-            )
-        detailed_end_ts = min(available_detail_end_ts, end_ts)
-
-        lookup = {point["ts"]: float(point.get("mmh", 0.0)) for point in buienradar_points}
+        # Keep detailed_hours for API compatibility, but never let that former
+        # display limit override available Buienradar data.
+        lookup = {
+            point["ts"]: float(point["mmh"]) for point in buienradar_points
+            if start_ts <= point["ts"] < end_ts and point.get("mmh") is not None
+            and math.isfinite(float(point["mmh"])) and float(point["mmh"]) >= 0
+        }
+        detailed_end_ts = max((timestamp + 300 for timestamp in lookup), default=start_ts)
         points = []
         slot_ts = start_ts
         while slot_ts < end_ts:
-            if slot_ts < detailed_end_ts:
-                points.append(
-                    {
-                        "ts": slot_ts,
-                        "mmh": lookup.get(slot_ts, 0.0),
-                        "group_start_ts": slot_ts,
-                        "duration_minutes": 5,
-                        "source": "Buienradar",
-                    }
-                )
+            if slot_ts in lookup:
+                group_end_ts = min(slot_ts + 300, end_ts)
+                rate, source = lookup[slot_ts], "Buienradar"
             else:
-                coarse_index = int((slot_ts - detailed_end_ts) // 3600)
-                group_start_ts = detailed_end_ts + coarse_index * 3600
-                points.append(
-                    {
-                        "ts": slot_ts,
-                        "mmh": self._hourly_step_value(
-                            hourly_forecast,
-                            group_start_ts,
-                            "rain_mmh",
-                        ),
-                        "group_start_ts": group_start_ts,
-                        "duration_minutes": 60,
-                        "source": "Open-Meteo",
-                    }
-                )
-            slot_ts += 5 * 60
+                next_radar_ts = min((timestamp for timestamp in lookup if timestamp > slot_ts), default=end_ts)
+                group_end_ts = min(slot_ts + 3600, next_radar_ts, end_ts)
+                rate = self._hourly_rain_rate(hourly_forecast, slot_ts, group_end_ts)
+                source = "Open-Meteo" if rate is not None else "Unavailable"
+            for timestamp in range(slot_ts, group_end_ts, 300):
+                points.append({
+                    "ts": timestamp, "mmh": rate, "group_start_ts": slot_ts,
+                    "duration_minutes": (group_end_ts - slot_ts) // 60, "source": source,
+                })
+            slot_ts = group_end_ts
 
         return {
             "start_ts": start_ts,
@@ -888,6 +885,29 @@ class WeatherStore:
             "detailed_end_ts": detailed_end_ts,
             "points": points,
         }
+
+    @staticmethod
+    def _hourly_rain_rate(series: list[dict], start_ts: int, end_ts: int) -> float | None:
+        """Average mm/hour over a bar; Open-Meteo stamps the END of each hour."""
+        if end_ts <= start_ts:
+            raise ValueError("Rain interval must have positive duration")
+        cursor, weighted = start_ts, 0.0
+        for point in sorted(series, key=lambda value: value["ts"]):
+            finish = int(point["ts"])
+            begin = finish - 3600
+            if finish <= cursor or begin >= end_ts:
+                continue
+            if begin > cursor:
+                return None
+            value = point.get("rain_mmh")
+            if value is None or not math.isfinite(float(value)) or float(value) < 0:
+                return None
+            stop = min(finish, end_ts)
+            weighted += (stop - cursor) * float(value)
+            cursor = stop
+            if cursor == end_ts:
+                return weighted / (end_ts - start_ts)
+        return None
 
     def get_temperature_forecast(
         self,
