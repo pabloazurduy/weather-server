@@ -146,6 +146,33 @@ class WeatherStoreTests(unittest.TestCase):
         self.assertEqual(latest["battery_voltage"], 4.01)
         self.assertIn("ts", latest)
 
+    def test_sensor_history_preserves_device_measurement_time_and_fields(self):
+        measured_at = "2026-11-02T12:34:56+00:00"
+        self.store.store_sensor_reading(
+            20.25, 47.5, 3.912,
+            measured_at=measured_at,
+            device_id="entrance-reterminal",
+            reading_id="0123456789abcdef",
+            chip_temp_c=30.4,
+            wifi_rssi_dbm=-61,
+        )
+        latest = self.store.latest_sensor_reading()
+        assert latest is not None
+        self.assertEqual(latest["ts"], 1793622896)
+        self.assertEqual(latest["measured_at"], measured_at)
+        self.assertEqual(latest["device_id"], "entrance-reterminal")
+        self.assertEqual(latest["reading_id"], "0123456789abcdef")
+        self.assertEqual(latest["temp"], 20.25)
+        self.assertEqual(latest["humidity"], 47.5)
+        self.assertEqual(latest["battery_voltage"], 3.912)
+        self.assertEqual(latest["chip_temp_c"], 30.4)
+        self.assertEqual(latest["wifi_rssi_dbm"], -61)
+
+    def test_sensor_history_rejects_timestamp_without_offset(self):
+        with self.assertRaisesRegex(ValueError, "UTC offset"):
+            self.store.store_sensor_reading(20, 40, 3.8,
+                                             measured_at="2026-11-02T12:34:56")
+
     def test_latest_snapshot_isolated_by_city(self):
         self.store.record_snapshot("alpha", {"city": "Amsterdam"}, city="Amsterdam")
         self.store.record_snapshot("alpha", {"city": "Berlin"}, city="Berlin")
@@ -661,6 +688,63 @@ class HTTPServerResilienceTests(unittest.TestCase):
 
             self.assertEqual(response.status, 413)
             self.assertEqual(json.loads(body), {"error": "request body too large"})
+
+    def test_sensor_post_stores_original_time_without_changing_legacy_keys(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = WeatherStore(Path(directory) / "history.sqlite3")
+            payload = {
+                "device_id": "entrance-reterminal",
+                "reading_id": "0123456789abcdef",
+                "measured_at": "2026-11-02T13:34:56+01:00",
+                "temp": 20.25,
+                "humidity": 47.5,
+                "battery_voltage": 3.912,
+                "chip_temp_c": 30.4,
+                "wifi_rssi_dbm": -61,
+            }
+            with patch.object(app, "weather_store", store):
+                with self._running_server() as address:
+                    connection = http.client.HTTPConnection(*address, timeout=2)
+                    connection.request("POST", "/sensor", body=json.dumps(payload),
+                                       headers={"Content-Type": "application/json"})
+                    response = connection.getresponse()
+                    response.read()
+                    connection.close()
+            self.assertEqual(response.status, 200)
+            latest = store.latest_sensor_reading()
+            assert latest is not None
+            self.assertEqual(latest["temp"], payload["temp"])
+            self.assertEqual(latest["humidity"], payload["humidity"])
+            self.assertEqual(latest["battery_voltage"], payload["battery_voltage"])
+            self.assertEqual(latest["measured_at"], payload["measured_at"])
+            self.assertEqual(latest["ts"], 1793622896)
+
+    def test_sensor_post_accepts_older_payload_and_rejects_naive_time(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = WeatherStore(Path(directory) / "history.sqlite3")
+            with patch.object(app, "weather_store", store):
+                with self._running_server() as address:
+                    connection = http.client.HTTPConnection(*address, timeout=2)
+                    connection.request("POST", "/sensor", body=json.dumps({
+                        "temp": 19.5, "humidity": 55, "battery_voltage": 3.8,
+                    }), headers={"Content-Type": "application/json"})
+                    accepted = connection.getresponse()
+                    accepted.read()
+                    connection.close()
+
+                    connection = http.client.HTTPConnection(*address, timeout=2)
+                    connection.request("POST", "/sensor", body=json.dumps({
+                        "temp": 21, "humidity": 55, "battery_voltage": 3.8,
+                        "measured_at": "2026-11-02T12:34:56",
+                    }), headers={"Content-Type": "application/json"})
+                    rejected = connection.getresponse()
+                    rejected.read()
+                    connection.close()
+            self.assertEqual(accepted.status, 200)
+            self.assertEqual(rejected.status, 400)
+            latest = store.latest_sensor_reading()
+            assert latest is not None
+            self.assertEqual(latest["temp"], 19.5)
 
 
 if __name__ == "__main__":

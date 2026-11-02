@@ -5,3 +5,4 @@
 #define WIFI_PASS "your-wifi-password"
 #define SERVER_HOST "nas.local"
 #define SERVER_PORT 8080
+#define PIPECAR_INGEST_TOKEN "windmill-token-scoped-to-f/weather/entrance_sensor"

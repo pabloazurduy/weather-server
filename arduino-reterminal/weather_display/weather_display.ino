@@ -12,6 +12,7 @@
  *   - GxEPD2      https://github.com/ZinggJM/GxEPD2  (ZIP install)
  *   - Adafruit GFX  (Library Manager)
  *   - Sensirion I2C SHT4x and Sensirion Core  (Library Manager)
+ *   - RTClib (PCF8563 clock, Library Manager)
  *
  * Board settings:
  *   Board:        XIAO_ESP32S3
@@ -27,16 +28,26 @@
 #include <SPI.h>
 #include <GxEPD2_BW.h>
 #include <LittleFS.h>
+#include <RTClib.h>
 #include <esp_sleep.h>
+#include <esp_system.h>
 #include <esp_partition.h>
 #include <driver/rtc_io.h>
+#include <sys/time.h>
 #include "secrets.h"
+#include "entrance_telemetry.h"
 
 // ── Server ──────────────────────────────────────────────────────────────────
 #define BIN_PATH      "/dashboard.bin"
 #define SLEEP_SEC     900ULL   // 15 minutes
 // Cached source fallback can take ~20 seconds while the NAS is offline.
 #define HTTP_READ_TIMEOUT_MS 45000
+#define PIPECAR_PORT 9471
+#define PIPECAR_PATH "/api/r/api/v1/sensor/entrance"
+#define PIPECAR_CONNECT_TIMEOUT_MS 2500
+#define PIPECAR_READ_TIMEOUT_MS 4500
+#define MAX_SENSOR_REPLAY_PER_WAKE 4
+#define MAX_SENSOR_PENDING 512
 
 // ── Pin Definitions ──────────────────────────────────────────────────────────
 #define EPD_SCK_PIN   7
@@ -87,6 +98,8 @@ struct ForecastCacheHeader {
 };
 
 static bool cache_ready = false;
+RTC_PCF8563 rtc;
+static bool rtc_ready = false;
 
 enum StatusScreen : uint8_t {
   STATUS_DASHBOARD = 0,
@@ -251,7 +264,6 @@ void drawBitmap(const uint8_t* bitmap) {
 // ── SHT40 on-board sensor ────────────────────────────────────────────────────
 // Requires: "Sensirion I2C SHT4x" library (Library Manager)
 bool readSHT40(float& temp, float& hum) {
-  Wire.begin(I2C_SDA, I2C_SCL);
   SensirionI2cSht4x sht40;
   sht40.begin(Wire, 0x44);
   uint16_t err = sht40.measureHighPrecision(temp, hum);
@@ -263,19 +275,163 @@ bool readSHT40(float& temp, float& hum) {
   return true;
 }
 
-// ── Push sensor data to server ────────────────────────────────────────────────
-void pushSensorData(float temp, float hum, float batt_v) {
+// The PCF8563 keeps UTC across deep sleep. NTP sets it on first network setup;
+// a valid RTC can timestamp measurements even if the external time service fails.
+bool prepareClock(bool network_available) {
+  static bool wire_started = false;
+  if (!wire_started) {
+    Wire.begin(I2C_SDA, I2C_SCL);
+    rtc_ready = rtc.begin(&Wire);
+    wire_started = true;
+    if (rtc_ready && !rtc.lostPower()) {
+      DateTime current = rtc.now();
+      if (current.year() >= 2024 && current.year() < 2100) {
+        struct timeval value = {static_cast<time_t>(current.unixtime()), 0};
+        settimeofday(&value, nullptr);
+      }
+    }
+  }
+
+  if (network_available) {
+    configTime(0, 0, "pool.ntp.org", "time.google.com");
+    uint32_t started = millis();
+    while (time(nullptr) < 1704067200 && millis() - started < 4000) delay(100);
+  }
+  time_t now = time(nullptr);
+  if (now < 1704067200) {
+    Serial1.println("[clock] No valid UTC time yet");
+    return false;
+  }
+  if (network_available && rtc_ready &&
+      (rtc.lostPower() || abs(static_cast<long>(rtc.now().unixtime() - now)) > 3)) {
+    rtc.adjust(DateTime(now));
+  }
+  return true;
+}
+
+bool sendPipeCarPayload(const char* payload) {
+  char url[128];
+  snprintf(url, sizeof(url), "http://%s:%d%s", SERVER_HOST, PIPECAR_PORT,
+           PIPECAR_PATH);
+  WiFiClient client;
+  HTTPClient http;
+  http.setConnectTimeout(PIPECAR_CONNECT_TIMEOUT_MS);
+  http.setTimeout(PIPECAR_READ_TIMEOUT_MS);
+  if (!http.begin(client, url)) return false;
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("Authorization", String("Bearer ") + PIPECAR_INGEST_TOKEN);
+  const int code = http.POST(String(payload));
+  http.end();
+  Serial1.printf("[pipecar] POST: %d\n", code);
+  return code >= 200 && code < 300;
+}
+
+struct SensorOutbox {
+  size_t count() {
+    File root = LittleFS.open("/");
+    if (!root) return 0;
+    size_t result = 0;
+    File file = root.openNextFile();
+    while (file) {
+      String name = file.name();
+      if (!name.startsWith("/")) name = "/" + name;
+      if (name.startsWith("/ent-") && name.endsWith(".json")) ++result;
+      file = root.openNextFile();
+    }
+    return result;
+  }
+
+  bool enqueue(const char* path, const char* payload) {
+    if (!cache_ready || count() >= MAX_SENSOR_PENDING) return false;
+    const char* temp_path = "/ent-pending.tmp";
+    LittleFS.remove(temp_path);
+    File file = LittleFS.open(temp_path, FILE_WRITE);
+    if (!file) return false;
+    const size_t length = strlen(payload);
+    const bool complete = file.write(reinterpret_cast<const uint8_t*>(payload), length) == length;
+    file.flush();
+    file.close();
+    if (!complete || !LittleFS.rename(temp_path, path)) {
+      LittleFS.remove(temp_path);
+      return false;
+    }
+    return true;
+  }
+
+  bool peek(char* path, size_t path_capacity, char* payload,
+            size_t payload_capacity) {
+    File root = LittleFS.open("/");
+    if (!root) return false;
+    String oldest;
+    File file = root.openNextFile();
+    while (file) {
+      String name = file.name();
+      if (!name.startsWith("/")) name = "/" + name;
+      if (name.startsWith("/ent-") && name.endsWith(".json") &&
+          (oldest.isEmpty() || name.compareTo(oldest) < 0)) oldest = name;
+      file = root.openNextFile();
+    }
+    if (oldest.isEmpty() || oldest.length() >= path_capacity) return false;
+    File pending = LittleFS.open(oldest, FILE_READ);
+    if (!pending || pending.size() == 0 || pending.size() >= payload_capacity) return false;
+    strcpy(path, oldest.c_str());
+    const size_t length = pending.readBytes(payload, pending.size());
+    payload[length] = '\0';
+    return length == pending.size();
+  }
+
+  bool erase(const char* path) { return LittleFS.remove(path); }
+};
+
+struct EntranceMeasurement {
+  bool measured = false;
+  bool encoded = false;
+  bool queued = false;
+  float temp = 0;
+  float humidity = 0;
+  float battery_voltage = 0;
+  float chip_temp = 0;
+  uint32_t sampled_millis = 0;
+  char reading_id[17] = {};
+  char weather_payload[entrance_telemetry::PAYLOAD_BYTES] = {};
+  char pipecar_payload[entrance_telemetry::PAYLOAD_BYTES] = {};
+};
+
+void encodeEntranceReading(EntranceMeasurement& measurement, time_t epoch) {
+  if (!measurement.measured || measurement.encoded || epoch < 1704067200) return;
+  entrance_telemetry::Reading reading = {
+      measurement.reading_id, epoch, measurement.temp, measurement.humidity,
+      measurement.battery_voltage, measurement.chip_temp, true,
+      WiFi.RSSI(), WiFi.status() == WL_CONNECTED};
+  measurement.encoded =
+      entrance_telemetry::encode(reading, true, measurement.weather_payload,
+                                 sizeof(measurement.weather_payload)) &&
+      entrance_telemetry::encode(reading, false, measurement.pipecar_payload,
+                                 sizeof(measurement.pipecar_payload));
+  if (!measurement.encoded) {
+    Serial1.println("[sensor] Invalid reading; not forwarding");
+    return;
+  }
+  char path[72];
+  snprintf(path, sizeof(path), "/ent-%010llu-%s.json",
+           static_cast<unsigned long long>(epoch), measurement.reading_id);
+  SensorOutbox outbox;
+  measurement.queued = outbox.enqueue(path, measurement.pipecar_payload);
+  if (!measurement.queued) {
+    Serial1.println("[pipecar] Outbox unavailable/full; attempting direct delivery");
+  }
+}
+
+// Keep the legacy keys that drive the weather dashboard, while adding the
+// stable reading ID and original UTC timestamp to its SQLite history.
+void pushSensorData(const char* payload) {
   char url[64];
   snprintf(url, sizeof(url), "http://%s:%d/sensor", SERVER_HOST, SERVER_PORT);
-  char body[96];
-  snprintf(body, sizeof(body),
-           "{\"temp\":%.2f,\"humidity\":%.1f,\"battery_voltage\":%.3f}",
-           temp, hum, batt_v);
   HTTPClient http;
   http.begin(url);
   http.setTimeout(HTTP_READ_TIMEOUT_MS);
   http.addHeader("Content-Type", "application/json");
-  int code = http.POST(body);
+  int code = http.POST(payload);
   if (code < 0) {
     Serial1.printf("POST /sensor: %d (%s)\n", code,
                    HTTPClient::errorToString(code).c_str());
@@ -404,6 +560,8 @@ void setup() {
   Serial1.printf("Battery: %.2f V\n", batt_v);
 
   uint8_t* bitmap = nullptr;
+  EntranceMeasurement measurement;
+  bool clock_ready = false;
 
   // Allocate bitmap buffer in PSRAM
   bitmap = (uint8_t*) ps_malloc(BITMAP_BYTES);
@@ -418,6 +576,19 @@ void setup() {
 
   cache_ready = initForecastCache();
 
+  // Capture the physical reading before Wi-Fi. A valid PCF8563 clock lets us
+  // commit it to LittleFS even when the network is down for the whole wake.
+  clock_ready = prepareClock(false);
+  measurement.battery_voltage = batt_v;
+  measurement.measured = readSHT40(measurement.temp, measurement.humidity);
+  if (measurement.measured) {
+    measurement.sampled_millis = millis();
+    measurement.chip_temp = temperatureRead();
+    snprintf(measurement.reading_id, sizeof(measurement.reading_id),
+             "%08x%08x", esp_random(), esp_random());
+    if (clock_ready) encodeEntranceReading(measurement, time(nullptr));
+  }
+
   // Connect WiFi and download BEFORE touching the display.
   // UC8179 must not sit in Power-On state for 15+ seconds waiting for data —
   // it will auto-reset and produce a "flash then clear" failure pattern.
@@ -430,12 +601,37 @@ void setup() {
     goto sleep;
   }
 
-  // Read SHT40 and push to server (always — this also invalidates the cache).
-  // Do this BEFORE /refresh so the new image is built with fresh sensor data.
+  // NTP supplies the missing time on a first boot without a valid RTC. The
+  // elapsed monotonic time brings the timestamp back to the sample instant.
+  if (measurement.measured && !measurement.encoded && prepareClock(true)) {
+    const time_t sampled_epoch =
+        time(nullptr) - (millis() - measurement.sampled_millis) / 1000;
+    encodeEntranceReading(measurement, sampled_epoch);
+  }
+
+  // Both destinations receive the same physical reading and timestamp. The
+  // PipeCar copy was queued before any HTTP request when time was available.
   {
-    float sht_temp, sht_hum;
-    if (readSHT40(sht_temp, sht_hum)) {
-      pushSensorData(sht_temp, sht_hum, batt_v);
+    SensorOutbox outbox;
+    if (measurement.measured) {
+      if (measurement.encoded) {
+        pushSensorData(measurement.weather_payload);
+        if (!measurement.queued) sendPipeCarPayload(measurement.pipecar_payload);
+      } else {
+        char legacy_payload[128];
+        snprintf(legacy_payload, sizeof(legacy_payload),
+                 "{\"temp\":%.2f,\"humidity\":%.2f,\"battery_voltage\":%.3f}",
+                 measurement.temp, measurement.humidity, batt_v);
+        pushSensorData(legacy_payload);
+      }
+    }
+    if (cache_ready) {
+      auto sender = [](const char* payload) { return sendPipeCarPayload(payload); };
+      const size_t delivered = entrance_telemetry::deliverPending(
+          outbox, sender, MAX_SENSOR_REPLAY_PER_WAKE);
+      Serial1.printf("[pipecar] Delivered %u pending; %u remain\n",
+                     static_cast<unsigned>(delivered),
+                     static_cast<unsigned>(outbox.count()));
     }
   }
 

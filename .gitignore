@@ -20,3 +20,4 @@ arduino-lilygo/**/secrets.h
 
 # Captured validation output and other local artifacts (may contain location data).
 tmp/
+arduino-reterminal/.pio/

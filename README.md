@@ -13,7 +13,7 @@ Weather dashboard project for an e-ink display. The repo contains a Python serve
 ## Repository layout
 
 - `flask-server/` Python HTTP server that fetches weather data, caches it in SQLite, renders the dashboard image, and exposes API endpoints for the display client.
-- `arduino-reterminal/weather_display/` Arduino sketch for the reTerminal E1001. It reads the on-board SHT40 sensor, posts sensor data to the server, downloads `/dashboard.bin`, and deep-sleeps between refreshes.
+- `arduino-reterminal/weather_display/` Arduino sketch for the reTerminal E1001. It reads the on-board SHT40 sensor, posts the same timestamped reading to the server and directly to PipeCar, downloads `/dashboard.bin`, and deep-sleeps between refreshes.
 - `arduino-lilygo/battery_monitor/` Battery-monitor sketch for the LilyGO T5 display.
 - `Dockerfile` Container image definition for the Python server.
 
@@ -141,9 +141,52 @@ docker pull ghcr.io/pabloazurduy/weather-server:latest
 For the production display sketch:
 
 1. Copy `arduino-reterminal/weather_display/secrets.example.h` to `arduino-reterminal/weather_display/secrets.h`.
-2. Fill in Wi-Fi credentials and the server host/port.
+2. Fill in Wi-Fi credentials, the server host/port, and a Windmill token scoped
+   to `http_triggers:read:f/weather/entrance_sensor` as
+   `PIPECAR_INGEST_TOKEN`. Keep `secrets.h` ignored and mode `600`.
 3. Install the libraries referenced at the top of `arduino-reterminal/weather_display/weather_display.ino`.
 4. Build and flash from the Arduino IDE for `XIAO_ESP32S3` with PSRAM enabled.
+
+An isolated PlatformIO build is also configured in `arduino-reterminal/platformio.ini`:
+
+```bash
+cd arduino-reterminal
+pio run
+pio run --target upload --upload-port /dev/cu.usbserial-10
+```
+
+The entrance reading has stable device ID `entrance-reterminal`, a random
+per-reading ID reused on retries, and an original measurement timestamp with
+`+00:00`. The sketch sends legacy `temp`, `humidity`, and `battery_voltage` keys
+to `/sensor`, which keeps the existing dashboard and SQLite history working.
+The server now records the original timestamp when provided; older clients
+without it still use receipt time. Independently, the device POSTs
+`ambient_temp_c`, `humidity_pct`, `battery_voltage`, `chip_temp_c`, and
+`wifi_rssi_dbm` to PipeCar at `/api/r/api/v1/sensor/entrance` using Windmill
+bearer authentication. `battery_pct` and
+`pressure_hpa` are null because they are not available as calibrated readings.
+
+PipeCar delivery uses a LittleFS outbox: the SHT40 is measured and a reading is
+saved before Wi-Fi connection, then up to four pending readings are retried per
+15-minute wake. This also retains readings during Wi-Fi outages when the RTC
+already has valid time.
+Requests have a 2.5-second connection timeout and a 4.5-second response timeout;
+failure never prevents the weather-server upload or dashboard refresh. The
+outbox holds at most 512 readings (about 5 days at the normal wake interval)
+and requires the `Default with spiffs` partition. If the filesystem is
+unavailable or full, the device attempts one direct PipeCar send and logs that
+it cannot guarantee later delivery. Valid time comes from the PCF8563 RTC or
+NTP; if neither is available, the weather-server upload still works once Wi-Fi
+returns, but an untimestamped reading cannot be queued for PipeCar.
+
+Run the host-side mapping/retry tests with:
+
+```bash
+clang++ -std=c++17 -Wall -Wextra -Werror \
+  arduino-reterminal/tests/test_entrance_telemetry.cpp \
+  -o /tmp/test_entrance_telemetry
+/tmp/test_entrance_telemetry
+```
 
 ### reTerminal recovery and offline display
 

@@ -508,15 +508,33 @@ class WeatherStore:
         temp: float,
         humidity: float,
         battery_voltage: float | None,
+        *,
+        measured_at: str | None = None,
+        device_id: str | None = None,
+        reading_id: str | None = None,
+        chip_temp_c: float | None = None,
+        wifi_rssi_dbm: int | None = None,
     ):
+        fetched_at = None
+        if measured_at is not None:
+            measured = datetime.datetime.fromisoformat(measured_at)
+            if measured.tzinfo is None or measured.utcoffset() is None:
+                raise ValueError("measured_at must include a UTC offset")
+            fetched_at = int(measured.timestamp())
         self.record_snapshot(
             "device_sensor",
             {
                 "temp": temp,
                 "humidity": humidity,
                 "battery_voltage": battery_voltage,
+                "measured_at": measured_at,
+                "device_id": device_id,
+                "reading_id": reading_id,
+                "chip_temp_c": chip_temp_c,
+                "wifi_rssi_dbm": wifi_rssi_dbm,
             },
             success=True,
+            fetched_at=fetched_at,
         )
 
     def latest_sensor_reading(self):

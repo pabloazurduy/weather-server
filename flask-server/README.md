@@ -27,7 +27,10 @@ By default the SQLite database is stored in `weather_cache.sqlite3` in this dire
 - `GET /refresh` regenerate the image using cached source data.
 - `GET /force-refresh-sources` bypass source TTLs and refresh remote weather sources.
 - `GET /api/setup` and `GET /api/display` TRMNL-compatible device endpoints.
-- `POST /sensor` store device temperature, humidity, and battery readings.
+- `POST /sensor` store device temperature, humidity, and battery readings. When
+  `measured_at` has an explicit UTC offset, SQLite retains that original
+  measurement time alongside the stable `device_id` and `reading_id`; older
+  clients without those fields remain supported.
 
 ## Configuration
 

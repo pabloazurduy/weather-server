@@ -836,18 +836,40 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 data = json.loads(body)
-                _indoor["temp"] = float(data["temp"])
-                _indoor["humidity"] = float(data["humidity"])
-                _indoor["battery_voltage"] = (
+                temp = float(data["temp"])
+                humidity = float(data["humidity"])
+                battery_voltage = (
                     float(data["battery_voltage"])
                     if "battery_voltage" in data else None
                 )
-                _indoor["ts"] = time.time()
-                weather_store.store_sensor_reading(
-                    _indoor["temp"],
-                    _indoor["humidity"],
-                    _indoor["battery_voltage"],
+                measured_at = data.get("measured_at")
+                device_id = data.get("device_id")
+                reading_id = data.get("reading_id")
+                chip_temp_c = (
+                    float(data["chip_temp_c"])
+                    if data.get("chip_temp_c") is not None else None
                 )
+                wifi_rssi_dbm = (
+                    int(data["wifi_rssi_dbm"])
+                    if data.get("wifi_rssi_dbm") is not None else None
+                )
+                weather_store.store_sensor_reading(
+                    temp, humidity, battery_voltage,
+                    measured_at=measured_at,
+                    device_id=device_id,
+                    reading_id=reading_id,
+                    chip_temp_c=chip_temp_c,
+                    wifi_rssi_dbm=wifi_rssi_dbm,
+                )
+                _indoor.update({
+                    "temp": temp,
+                    "humidity": humidity,
+                    "battery_voltage": battery_voltage,
+                    "ts": (
+                        datetime.datetime.fromisoformat(measured_at).timestamp()
+                        if measured_at is not None else time.time()
+                    ),
+                })
                 with _cache_lock:
                     _cache["ts"] = 0
                 print(
@@ -855,7 +877,7 @@ class Handler(BaseHTTPRequestHandler):
                     f"batt={_indoor['battery_voltage']}V"
                 )
                 self._respond(200, "application/json", b'{"ok":true}')
-            except (KeyError, ValueError) as exc:
+            except (KeyError, TypeError, ValueError) as exc:
                 self._respond(400, "application/json",
                               json.dumps({"error": str(exc)}).encode())
         else:
